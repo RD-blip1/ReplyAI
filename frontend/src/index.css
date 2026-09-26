@@ -1,0 +1,131 @@
+@import 'tailwindcss';
+
+:root {
+  font-family: 'Avenir Next', Avenir, 'Segoe UI', sans-serif;
+  color: #242624;
+  background: #f4f5f1;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-weight: 400;
+  --ink: #242624;
+  --muted: #777c75;
+  --line: #e3e6df;
+  --paper: #fff;
+  --green: #267653;
+  --orange: #bd643a;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, a { font: inherit; }
+a { color: inherit; text-decoration: none; }
+button { color: inherit; }
+
+.topbar {
+  height: 66px;
+  padding: 0 max(28px, calc((100vw - 1120px) / 2));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: inline-flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 720; letter-spacing: 0; }
+.brand-mark { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 9px; color: white; background: #2d664e; }
+.brand-accent { color: #3c8a68; }
+.topbar-meta { display: flex; align-items: center; gap: 17px; font-size: 12px; color: #686d67; }
+.environment-tag, .phase-label { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.environment-tag > span { width: 7px; height: 7px; border-radius: 50%; background: #6a9c77; box-shadow: 0 0 0 3px #eaf2e9; }
+.topbar-divider { width: 1px; height: 17px; background: var(--line); }
+.phase-label { color: #454b45; font-weight: 600; }
+.phase-label span { color: #a0a49e; font-weight: 400; }
+
+.workspace { max-width: 1000px; margin: 0 auto; padding: 66px 28px 36px; }
+.intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; padding: 0 0 38px; animation: rise-in 440ms ease-out both; }
+.eyebrow { display: flex; align-items: center; gap: 9px; margin: 0; color: #737971; font-size: 10px; font-weight: 700; letter-spacing: 1.4px; }
+.eyebrow-line { width: 18px; height: 1px; background: #7da18a; }
+.intro h1 { margin: 18px 0 13px; max-width: 680px; font-family: Georgia, 'Times New Roman', serif; font-size: 53px; font-weight: 400; line-height: 1.1; letter-spacing: 0; color: #222a24; }
+.intro-description { max-width: 545px; margin: 0; color: #777c75; font-size: 14px; line-height: 1.7; }
+.overall-status { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; min-width: 236px; padding: 13px 15px; margin-bottom: 1px; border: 1px solid #ead9ce; border-radius: 7px; background: #fcf7f3; color: #8d4b30; }
+.overall-status.is-ready { border-color: #d8e8dc; background: #f4faf5; color: #2d704d; }
+.overall-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 6px; background: #f5e8df; }
+.is-ready .overall-icon { background: #e2f0e5; }
+.overall-status strong, .overall-status small { display: block; }
+.overall-status strong { font-size: 12px; font-weight: 700; }
+.overall-status small { margin-top: 3px; font-size: 10px; color: #8d857f; }
+
+.system-panel { overflow: hidden; border: 1px solid #e2e6df; border-radius: 7px; background: var(--paper); box-shadow: 0 5px 22px rgb(42 56 43 / 3%); animation: rise-in 520ms 70ms ease-out both; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; padding: 20px 22px 17px; }
+.panel-title { display: flex; align-items: center; gap: 12px; }
+.section-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 6px; color: #477b5e; background: #edf4ed; }
+.panel-title h2 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0; }
+.panel-title p { margin: 4px 0 0; color: #888d86; font-size: 11px; }
+.icon-button { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: #676e66; cursor: pointer; transition: background 150ms ease, color 150ms ease; }
+.icon-button:hover { background: #f1f5f0; color: #326b4d; }
+.service-list { border-top: 1px solid #eff0ec; }
+.service-row { min-height: 65px; padding: 0 22px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #eff0ec; }
+.service-name { display: flex; align-items: center; gap: 11px; }
+.service-name strong, .service-name small { display: block; }
+.service-name strong { font-size: 12px; font-weight: 650; }
+.service-name small { margin-top: 3px; color: #90948e; font-size: 10px; }
+.service-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; }
+.api-icon { color: #52739a; background: #edf2f8; }
+.database-icon { color: #477b5e; background: #edf4ed; }
+.redis-icon { color: #b96c47; background: #fbf1eb; }
+.status-label { display: inline-flex; align-items: center; gap: 7px; color: #858a83; font-size: 11px; white-space: nowrap; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: #b8bdb5; }
+.status-available { color: #327b55; }
+.status-available .status-dot { background: #48a16d; }
+.status-unavailable { color: #a25536; }
+.status-unavailable .status-dot { background: #d47a53; }
+.status-checking .status-dot { animation: blink 1.2s ease-in-out infinite; }
+.panel-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 22px; color: #91968f; font-size: 10px; }
+.panel-footer span, .panel-footer a { display: inline-flex; align-items: center; gap: 6px; }
+.panel-footer a { color: #467659; font-weight: 650; }
+.panel-footer a:hover { color: #244f39; }
+
+.capabilities { padding-top: 47px; animation: rise-in 600ms 130ms ease-out both; }
+.capabilities-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 17px; }
+.capabilities-heading h2 { margin: 11px 0 0; font-family: Georgia, 'Times New Roman', serif; font-size: 25px; font-weight: 400; letter-spacing: 0; }
+.scope-note { display: inline-flex; align-items: center; gap: 7px; padding-bottom: 2px; color: #858a82; font-size: 11px; white-space: nowrap; }
+.capability-list { border-top: 1px solid #dfe4dc; }
+.capability-row { min-height: 63px; display: flex; align-items: center; gap: 13px; border-bottom: 1px solid #e3e7e0; }
+.capability-icon { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #e1e5de; border-radius: 6px; background: #fafbf9; color: #777f76; }
+.capability-copy { flex: 1; min-width: 0; }
+.capability-copy strong, .capability-copy small { display: block; }
+.capability-copy strong { font-size: 12px; font-weight: 650; }
+.capability-copy small { margin-top: 3px; color: #8b9089; font-size: 10px; }
+.unavailable-tag { flex: 0 0 auto; padding: 5px 8px; border: 1px solid #e5e7e2; border-radius: 4px; color: #858a83; background: #f8f9f7; font-size: 10px; }
+.page-footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 36px; padding-top: 16px; border-top: 1px solid #e1e5de; color: #92978f; font-size: 10px; }
+.footer-separator { padding: 0 5px; color: #c2c6bf; }
+
+@keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes blink { 50% { opacity: 0.35; } }
+
+@media (max-width: 680px) {
+  .topbar { height: 58px; padding: 0 18px; }
+  .topbar-meta { gap: 10px; font-size: 10px; }
+  .workspace { padding: 45px 18px 28px; }
+  .intro { align-items: flex-start; flex-direction: column; gap: 21px; padding-bottom: 28px; }
+  .intro h1 { font-size: 39px; }
+  .desktop-break { display: none; }
+  .overall-status { min-width: 0; width: 100%; }
+  .capabilities { padding-top: 37px; }
+  .capabilities-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .scope-note { font-size: 10px; }
+  .page-footer { flex-direction: column; gap: 8px; margin-top: 27px; }
+}
+
+@media (max-width: 390px) {
+  .environment-tag { gap: 6px; }
+  .phase-label { display: none; }
+  .topbar-divider { display: none; }
+  .service-row { padding: 0 14px; }
+  .panel-heading, .panel-footer { padding-left: 14px; padding-right: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+}
