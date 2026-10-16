@@ -1,0 +1,44 @@
+# Local environment values; keep example templates tracked.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# JavaScript dependencies and build output.
+node_modules/
+dist/
+.vite/
+
+# Python environments, caches, and test output.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Editor and operating-system files.
+.DS_Store
+Thumbs.db
+.idea/
+
+# One-off development scripts and editor/merge backups. Not part of the app.
+*.orig
+*.bak
+patch_*.py
+scratch_*.py
+update_*.py
+fix_*.patch
+user_prompt.txt
+
+# Local cleanup backups, if ever created inside the repository.
+_cleanup_backup/
+
+# Internal recovery/verification notes; kept locally, never shared.
+docs/copilot-recovery-report.md
+docs/manual-testing-tomorrow.md
