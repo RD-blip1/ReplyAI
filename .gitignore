@@ -26,3 +26,19 @@ htmlcov/
 .DS_Store
 Thumbs.db
 .idea/
+
+# One-off development scripts and editor/merge backups. Not part of the app.
+*.orig
+*.bak
+patch_*.py
+scratch_*.py
+update_*.py
+fix_*.patch
+user_prompt.txt
+
+# Local cleanup backups, if ever created inside the repository.
+_cleanup_backup/
+
+# Internal recovery/verification notes; kept locally, never shared.
+docs/copilot-recovery-report.md
+docs/manual-testing-tomorrow.md

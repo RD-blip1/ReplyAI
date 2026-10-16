@@ -8,7 +8,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-replyai}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replyai_dev_only}
     ports:
-      - "127.0.0.1:5432:5432"
+      # Host port is overridable so a second checkout can run alongside this one.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +24,8 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
     ports:
-      - "127.0.0.1:6379:6379"
+      # Host port is overridable so a second checkout can run alongside this one.
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
