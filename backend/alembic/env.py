@@ -4,7 +4,7 @@ from sqlalchemy.engine import Connection
 
 from alembic import context
 from app.config import settings
-from app.database import engine
+from app.database import dispose, engine
 from app.models import Base
 
 config = context.config
@@ -30,9 +30,9 @@ def run_migrations_with_connection(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    async with engine.connect() as connection:
+    async with engine().connect() as connection:
         await connection.run_sync(run_migrations_with_connection)
-    await engine.dispose()
+    await dispose()
 
 
 if context.is_offline_mode():

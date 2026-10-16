@@ -29,7 +29,7 @@ class ReadinessReport(BaseModel):
 
 async def check_database() -> bool:
     try:
-        async with engine.connect() as connection:
+        async with engine().connect() as connection:
             await connection.execute(text("SELECT 1"))
         return True
     except (SQLAlchemyError, OSError, TimeoutError):
