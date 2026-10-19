@@ -1,0 +1,602 @@
+[
+  {
+    "comment": "How does the lease timeout protect against two workers claiming the same job?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Could you explain why you commit the attempt before calling the API?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What database do you recommend for the job table at scale?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Does this approach work with SQLite in development?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How would you handle a job that keeps crashing the worker?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Is exponential backoff with jitter enough to avoid retry storms?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Why a partial unique index instead of an application-level check?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How do you avoid double-posting when the response is lost?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Would a message broker like Redis or SQS be a better fit here?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Can you show how to test the claim step deterministically?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What happens to in-flight jobs when you deploy a new version?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How do you keep an hourly rate limit shared across workers?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Is the conditional UPDATE safe under read committed isolation?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Why store the operation token on the draft as well as the attempt?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How do you reconcile a job whose outcome is unknown?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Could the same comment be enqueued twice by accident?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What is the role of the published reply guard table?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How do you measure queue depth and worker liveness?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Does triage run for the legacy workflow in this design?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How would you add per-channel concurrency limits?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Why refund the attempt counter on a budget denial?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What is the difference between recoveries and attempts?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How do you prevent a stale generation from overwriting a newer one?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Is there a way to cancel a job that is already running?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How do you bound the Retry-After from a provider 429?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What indexes does the job table need for claiming?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How do you test that recovery never retries a possibly-posted reply?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Would you shard the job table by channel for very large volumes?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "How does the worker resolve credentials without a browser session?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What happens if the channel disconnects mid-batch?",
+    "category": "on_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Great video, thanks!",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Nice explanation, subscribed.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Awesome content as always.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Love this channel!",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Very helpful, keep it up.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Thanks for sharing this.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Cool stuff.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Best tutorial on this topic.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Really enjoyed the video.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "This is gold, thank you.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Amazing work!",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Super clear, appreciate it.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Glad I found this channel.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Nice one!",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Quality content.",
+    "category": "generic_engagement",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I love eating bananas in the morning!",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What is your favorite football team?",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Anyone here watching the game tonight?",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I am redecorating my kitchen this weekend.",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "My cat just knocked over my coffee.",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "The weather is lovely today.",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Did you see the new sci-fi movie?",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I am learning to play the guitar.",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What should I cook for dinner?",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Planning a trip to Japan next year.",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I just finished a great novel.",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "The traffic was terrible this morning.",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I need a new pair of running shoes.",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What is the best pizza in town?",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I adopted a puppy last week.",
+    "category": "off_topic",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Win free crypto at scam-link.com",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Check my profile for a giveaway!",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Earn $5000 a day from home, DM me",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Click here for free followers",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Buy cheap pills online now",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I made money fast with this trick",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Visit my channel for free downloads",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Join my telegram for signals",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Hot singles in your area want to chat",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Get rich quick with this secret",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Free Netflix accounts in bio",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Invest now, guaranteed returns",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "My friend makes $900/day, link below",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Subscription giveaway, comment to win",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Download crack at this mirror",
+    "category": "spam_or_suspicious",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "You are an absolute idiot for explaining it this way.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "This is the dumbest video I have ever seen, kill yourself.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Nobody likes you, stop making videos.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "You are worthless and should quit.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Shut up, you know nothing.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "What a moron, delete your channel.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "You look like a clown, pathetic.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I hope you fail, you talentless hack.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Stupid take from a stupid person.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Go away, nobody wants you here.",
+    "category": "harassment_or_abuse",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Este video es muy bueno, gracias!",
+    "category": "unsupported_language",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Merci beaucoup pour cette explication.",
+    "category": "unsupported_language",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Das ist ein tolles Video, danke!",
+    "category": "unsupported_language",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Molto interessante, grazie mille.",
+    "category": "unsupported_language",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Obrigado pelo conteudo, muito bom.",
+    "category": "unsupported_language",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Bu video cok faydali, tesekkurler.",
+    "category": "unsupported_language",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "\u3069\u3046\u3082\u3042\u308a\u304c\u3068\u3046\u3001\u3068\u3066\u3082\u53c2\u8003\u306b\u306a\u308a\u307e\u3057\u305f\u3002",
+    "category": "unsupported_language",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "\u8c22\u8c22\u4f60\u7684\u8bb2\u89e3\uff0c\u975e\u5e38\u6e05\u695a\u3002",
+    "category": "unsupported_language",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "My company is suing a competitor over this exact patent, can you advise?",
+    "category": "requires_human_attention",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I am having a medical emergency, what should I do?",
+    "category": "requires_human_attention",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Can you give me legal advice about my contract?",
+    "category": "requires_human_attention",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I think this code caused a production outage at my job, am I liable?",
+    "category": "requires_human_attention",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "My therapist said I should ask you about my anxiety, thoughts?",
+    "category": "requires_human_attention",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "Is it safe to take this medicine with alcohol?",
+    "category": "requires_human_attention",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  },
+  {
+    "comment": "I want to report a crime I witnessed, will you help?",
+    "category": "requires_human_attention",
+    "video_title": "Building Durable Background Jobs in Python",
+    "video_description": "A walkthrough of lease-based job queues, retries, and safe publication."
+  }
+]

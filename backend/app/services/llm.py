@@ -57,7 +57,36 @@ class Quality(Structured):
 
 
 class ProviderFailure(Exception):
-    """Only fixed, safe error codes are exposed."""
+    """Only fixed, safe error codes are exposed.
+
+    ``retry_after`` carries a provider-requested backoff in seconds when one was
+    legible (currently only from an HTTP 429 ``Retry-After`` header). It is advisory
+    input for the caller's retry policy; the adapter itself never retries 429.
+    """
+
+    def __init__(self, code: str, retry_after: int | None = None) -> None:
+        self.retry_after = retry_after
+        super().__init__(code)
+
+
+def _retry_after_seconds(response: requests.Response) -> int | None:
+    """Parse a bounded Retry-After delay. Missing headers or absurd values are ignored."""
+    headers = getattr(response, "headers", None)
+    if not headers:
+        return None
+    try:
+        raw = headers.get("Retry-After")
+    except (AttributeError, TypeError):
+        return None
+    if raw is None:
+        return None
+    try:
+        seconds = int(raw.strip())
+    except (ValueError, AttributeError, TypeError):
+        return None
+    if seconds < 1 or seconds > 3600:
+        return None
+    return seconds
 
 
 class Provider(Protocol):
@@ -190,7 +219,7 @@ class ChatCompletionsProvider:
             timeout=(5, 35), allow_redirects=False, stream=True,
         ) as response:
             if response.status_code == 429:
-                raise ProviderFailure("rate_limited")
+                raise ProviderFailure("rate_limited", _retry_after_seconds(response))
             if response.status_code in (408, 500, 502, 503, 504):
                 raise ProviderFailure("transient_error")
             if response.status_code != 200:

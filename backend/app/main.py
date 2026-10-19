@@ -13,6 +13,7 @@ from app.middleware.sensitive_query import (
 )
 from app.redis_client import redis_client
 from app.routers.auth import router as auth_router
+from app.routers.batch import router as batch_router
 from app.routers.drafts import router as drafts_router
 from app.routers.health import router as health_router
 from app.routers.preferences import router as preferences_router
@@ -50,6 +51,7 @@ app.add_middleware(
     allow_headers=["X-CSRF-Token"],
 )
 app.include_router(drafts_router)
+app.include_router(batch_router)
 app.include_router(publication_router)
 app.include_router(preferences_router)
 app.include_router(publishing_settings_router)
