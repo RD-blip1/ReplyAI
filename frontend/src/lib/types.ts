@@ -73,3 +73,50 @@ export type PublicationPage = {
   items: PublicationItem[]
   total: number
 }
+
+export type JobStatus =
+  | 'pending'
+  | 'retry'
+  | 'processing'
+  | 'verified'
+  | 'publish_claimed'
+  | 'published'
+  | 'review'
+  | 'skipped'
+  | 'failed'
+  | 'unknown'
+  | 'needs_reauth'
+  | 'cancelled'
+
+export type ReplyJob = {
+  id: string
+  batch_id: string | null
+  channel_id: string
+  video_id: string
+  comment_id: string
+  draft_id: string | null
+  status: JobStatus
+  attempts: number
+  max_attempts: number
+  recoveries: number
+  last_error: Record<string, unknown>
+  outcome: Record<string, unknown>
+  next_run_at: string | null
+  lease_expires_at: string | null
+  created_at: string | null
+  finished_at: string | null
+}
+
+export type JobList = { items: ReplyJob[]; total: number }
+
+export type JobStats = {
+  counts: Record<string, number>
+  due_now: number
+  total: number
+}
+
+export type EnqueueResult = {
+  created: string[]
+  duplicates: number
+  batch_id: string
+}

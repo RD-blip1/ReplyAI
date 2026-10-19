@@ -4,6 +4,7 @@ import { useAppData } from './hooks/useAppData';
 import VideosPage from './pages/VideosPage';
 import InboxPage from './pages/InboxPage';
 import PostedPage from './pages/PostedPage';
+import JobsPage from './pages/JobsPage';
 import SettingsPage from './pages/SettingsPage';
 
 type Notice = { kind: 'success' | 'info' | 'error'; message: string }
@@ -107,6 +108,7 @@ export default function App() {
       {currentRoute === 'videos' && <VideosPage appData={appData} />}
       {currentRoute === 'inbox' && <InboxPage appData={appData} />}
       {currentRoute === 'posted' && <PostedPage appData={appData} />}
+      {currentRoute === 'jobs' && <JobsPage appData={appData} />}
       {currentRoute === 'settings' && (
         <SettingsPage
           key={appData.session?.channel?.channel_id ?? 'disconnected'}

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { MessageCircle, Video, Inbox, History, Settings, ChevronDown } from 'lucide-react';
+import { MessageCircle, Video, Inbox, History, Settings, ChevronDown, ListChecks } from 'lucide-react';
 import type { ConnectionStatus } from '../lib/types';
 
 interface AppShellProps {
@@ -16,6 +16,7 @@ export default function AppShell({ currentRoute, onNavigate, session, children, 
     { id: 'videos', label: 'Videos', icon: Video },
     { id: 'inbox', label: 'Comment inbox', icon: Inbox },
     { id: 'posted', label: 'Posted', icon: History },
+    { id: 'jobs', label: 'Jobs', icon: ListChecks },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
