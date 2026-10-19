@@ -159,7 +159,7 @@ Every attempt is committed before the request is sent, so an interrupted process
 - `failed` is used only for reasons Google's documentation lists as definitive refusals, for example replies closed, parent comment unavailable, or reply too long. Nothing was created, so a deliberate retry is allowed.
 - `unknown` is used for everything else that might have succeeded: timeouts, dropped connections, HTTP 5xx, `processingFailure`, unlisted reasons, and a response with no reply ID. No retry is offered, because the reply may already be public; the UI tells the user to check the video's replies.
 
-There is no automatic retry, no background job, no scheduler, and no batch posting. A posted or unknown outcome blocks further publishing for that draft, and deleting retained work is refused while an attempt is unresolved.
+There is no automatic retry of a manual post, no scheduler, and no batch posting through this manual endpoint. Manual posting is unchanged: each explicit confirmation is one request, never retried. A separate, opt-in background path (Phase 4, below) can process a queued batch, but it reuses this same guarded publication code and never strengthens what the manual path allows. A posted or unknown outcome blocks further publishing for that draft, and deleting retained work is refused while an attempt is unresolved.
 
 Migration `20260927_08` adds `published_reply_guards`, because the protection above ends at the draft: deleting a posted draft cascaded away the record that a reply existed. One row per `(channel_id, parent_comment_id)`, with no foreign key and no reply text, keeps that fact after deletion. A second draft for the same comment can still be created and approved, but publishing it is refused with `already_replied` and nothing is sent to YouTube. The reservation is made before the request leaves, so concurrent requests for one comment race on the unique index instead of on a read-then-write check, and a `failed` attempt releases it so a refusal never becomes a permanent block. See [RETENTION.md](RETENTION.md).
 
@@ -192,4 +192,30 @@ The publishing mode and its revision are snapshotted before generation starts. I
 
 For a safe manual verification without posting anything: keep **Manual review** selected except while exercising **Dry Run**; generate, edit, regenerate, refine, review, and inspect saved drafts; verify that generation and settings changes create no publication row; and confirm Dry Run records only its evaluation. Do not enable automatic publishing on a real channel or confirm a real YouTube post as part of verification.
 
-There are no scheduled jobs, background workers, bulk operations, or automatic processing of a backlog.
+## Background jobs and batch processing (Phase 4)
+
+The request-scoped workflow above still generates, verifies, and publishes inside the HTTP request that triggers it. Phase 4 adds an **opt-in** durable job layer so a large batch can be processed with retries and recovery, without changing what the existing endpoints do. Nothing is enqueued automatically: a job exists only when a caller asks for one through the batch API, and no job runs unless a worker process is started.
+
+Durability comes from three additive tables (migration `20261018_01`): `reply_jobs` (one row per queued comment), `queue_workers` (liveness/processed counters), and `rate_limit_counters` (shared provider and daily auto-publish budgets). There is no separate broker; PostgreSQL is the queue. A partial unique index blocks a second active job for the same `(channel_id, comment_id)`, so duplicate submissions lose on the database. The guarded publication machinery (`claim`/`settle`, the open-attempt index, and `published_reply_guards`) is reused unchanged, so background publishing cannot exceed the manual-path guarantees.
+
+Job lifecycle and classification:
+
+- A worker claims a due job with a conditional `UPDATE` and a time lease, so two workers cannot both own a job. The worker heartbeats at least every half-lease; if it dies, the lease expires and `recover_interrupted` returns the job to the queue (bounded by `job_max_recoveries`).
+- Rows progress through `pending` → `processing` → (`verified` → `publish_claimed`) → a terminal state (`published`, `review`, `skipped`, `failed`, `unknown`, `needs_reauth`, `cancelled`). Status `retry` means waiting with a future `next_run_at`.
+- Retries are classified. Provider budget exhaustion and connection changes park the job and **refund** the attempt (the wait is not the job's fault). Transient provider errors retry with exponential backoff plus jitter (`30s × 2^(n-1)`, capped at `900s`). Definitively rejected sends, policy skips, and an unknown publication outcome never retry automatically; a person may `requeue` a terminal job deliberately, including `unknown`, but the worker never does.
+- Shared budgets live in `rate_limit_counters`: LLM requests per minute/day, YouTube reads per minute, and a daily cap on automatic sends (in addition to the existing per-hour cap, now `AUTO_PUBLISH_MAX_PER_HOUR = 10` by default and configurable).
+- Triage runs for both workflow engines here, because the batch pipeline calls it explicitly. This is the one behavioral difference from the default request path, where triage depends on `DRAFT_WORKFLOW_ENGINE`; when that setting is `legacy`, the request path returns `triage_required` and never reaches automation.
+
+Endpoints (all under `/api/batch/jobs`, owner resolved from the verified connection, never from a client-supplied id):
+
+- `POST /enqueue`: queue comment ids for one owned video; returns created ids and a duplicate count.
+- `GET /stats/summary`: per-status counts, due-now, and total.
+- `GET ""` and `GET /{id}`: list and read jobs (safe codes only).
+- `POST /{id}/cancel`: cancel a `pending`/`retry` job only.
+- `POST /{id}/requeue`: reset a terminal job to `pending` (administrative override).
+- `POST /reconcile`: recover jobs whose worker stopped mid-run.
+- `GET /{id}/publication`: the latest publication attempt for the job's draft.
+
+Run the worker with `python -m app.worker` (add `--once` for a single pass, `--poll-interval` to change the idle loop). The frontend **Jobs** page lists the queue, shows per-status counts, auto-refreshes while work is outstanding, and offers enqueue, cancel, requeue, and reconcile.
+
+Known limitations of this layer, stated plainly: exactly-once processing is not claimed — the guarantee is at-most-one publication per comment, enforced by the durable guard, with an interrupted claim surfacing as `unknown` rather than being retried; the per-minute budgets mean a large batch intentionally spans multiple windows rather than exceeding provider limits; and a `reply_jobs` row stores only identifiers and safe codes, never comment text, reply text, or tokens.
