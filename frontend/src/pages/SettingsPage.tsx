@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Shield, Zap, Sparkles, FileText, ChevronDown, CheckCircle2 } from 'lucide-react';
+import { Shield, Zap, Sparkles, FileText, ChevronDown, CheckCircle2, Eye } from 'lucide-react';
+import AutomationControls from '../components/AutomationControls';
 import { apiRequest, messageOf } from '../lib/api';
 import type { PublishingMode, PublishingSettings, ReplyPreferences } from '../lib/types';
 import type { useAppData } from '../hooks/useAppData';
@@ -10,6 +11,13 @@ const defaults: PreferenceValues = {
   reply_length: 'Medium',
   language: 'English',
   channel_instructions: '',
+}
+
+// Shown before switching away from Manual review; every automatic mode needs consent.
+const MODE_CONFIRMATIONS: Record<Exclude<PublishingMode, 'manual_review'>, string> = {
+  dry_run: 'Dry run: ReplyAI will make every automatic decision and record what it would have posted, but it will not post anything to YouTube. Enable Dry run?',
+  auto_on_agreement: 'Replies that pass all checks will be posted publicly without asking you. A reply is eligible only when triage is on-topic, both models agree, the secondary review passes every check with at least 80% confidence and no findings, and the reply-safety policy finds nothing to hold. Everything else waits for you. You can switch back to Manual review at any time. Enable Auto-publish on agreement?',
+  approve_all: 'WARNING: Eligible newly generated replies may be published publicly without individual approval only when contextual triage is on-topic, both classifiers agree, and the secondary review passes every check with at least 80% confidence and no findings. Other replies stay for human review. Saved drafts will not be posted. You can switch back to Manual review at any time. Enable Approve all?',
 }
 
 export default function SettingsPage({
@@ -33,6 +41,7 @@ export default function SettingsPage({
   const [modeResult, setModeResult] = useState<{ channelId: string; settings: PublishingSettings } | null>(null)
   const [modeLoading, setModeLoading] = useState(Boolean(channelId))
   const [modeSaving, setModeSaving] = useState(false)
+  const [showAutomation, setShowAutomation] = useState(false)
   const [modeErrorResult, setModeErrorResult] = useState<{ channelId: string; message: string } | null>(null)
   const [modeSaved, setModeSaved] = useState(false)
   const modeRequestSequence = useRef(0)
@@ -116,9 +125,7 @@ export default function SettingsPage({
   async function savePublishingMode(mode: PublishingMode) {
     if (!channelId || !activeMode || modeLoading || modeSaving || mode === activeMode.mode) return
     if (mode !== 'manual_review') {
-      const message = mode === 'approve_all'
-        ? 'WARNING: Eligible newly generated replies may be published publicly without individual approval only when contextual triage is on-topic, both classifiers agree, and the secondary review passes every check with at least 80% confidence and no findings. Other replies stay for human review. Saved drafts will not be posted. You can switch back to Manual review at any time. Enable Approve all?'
-        : 'WARNING: Eligible newly generated replies may be published publicly without individual approval only when contextual triage is on-topic, both classifiers agree, and the secondary review passes every check with at least 80% confidence and no findings. Other replies stay for human review. Saved drafts will not be posted. You can switch back to Manual review at any time. Enable Auto-publish on agreement?'
+      const message = MODE_CONFIRMATIONS[mode]
       if (!window.confirm(message)) return
     }
 
@@ -379,6 +386,19 @@ export default function SettingsPage({
         {/* Right Column */}
         <div className="space-y-6">
           
+          {/* Automatic operation */}
+          <section className="rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm p-6">
+            <h2 className="text-lg font-semibold mb-4">Automatic operation</h2>
+            {/* Loaded on demand: the controls also live on the Automation page. */}
+            <button type="button" aria-expanded={showAutomation} onClick={() => setShowAutomation(value => !value)}
+              className="text-sm text-text-muted underline">
+              {showAutomation ? 'Hide automation controls' : 'Turn automatic comment discovery on, off or pause it'}
+            </button>
+            {showAutomation ? <div className="mt-3">
+              <AutomationControls csrf={session?.csrf_token ?? ''} connected={Boolean(channelId)} />
+            </div> : null}
+          </section>
+
           {/* Publishing mode */}
           <section className="rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm p-6">
             <h2 className="text-lg font-semibold mb-4">Publishing mode</h2>
@@ -396,6 +416,7 @@ export default function SettingsPage({
                   manual_review: 'Manual review',
                   auto_on_agreement: 'Auto-publish on agreement',
                   approve_all: 'Approve all',
+                  dry_run: 'Dry run',
                 }[activeMode.mode]}</span>
               </p>
             ) : null}
@@ -418,6 +439,12 @@ export default function SettingsPage({
                   title: 'Approve all',
                   description: 'Also lets eligible newly generated replies post without a per-reply confirmation. This is not a blanket approval: it waives no check, so the same triage, classifier-agreement, confidence, and findings rules apply, and anything that fails one stays for human review.',
                   Icon: Shield,
+                },
+                {
+                  mode: 'dry_run',
+                  title: 'Dry run',
+                  description: 'Makes every automatic decision and records what would have been posted, without posting anything. Use it to see how automation would behave on your comments.',
+                  Icon: Eye,
                 },
               ] as const).map(({ mode, title, description, Icon }) => {
                 const selected = activeMode?.mode === mode

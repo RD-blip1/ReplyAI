@@ -11,13 +11,20 @@ the person approving the reply. Auto-publish-on-agreement applies a separate, st
 agreement rule in ``automation_blocking_reason``.
 """
 from datetime import UTC, datetime
+from typing import Literal
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import PublishedReplyGuard, ReplyDraft, ReplyPublication
 from app.models.publication import OPEN_PUBLICATION_STATUSES
 from app.models.session import utc_now
+from app.services import reply_policy
+
+PublishingMode = Literal["manual_review", "auto_on_agreement", "approve_all", "dry_run"]
+AUTOMATIC_MODES: tuple[str, ...] = ("auto_on_agreement", "approve_all", "dry_run")
+"""Modes in which a newly generated draft may be published without a person confirming it."""
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -61,8 +68,16 @@ def blocking_reason(draft: ReplyDraft) -> tuple[str, str] | None:
     return None
 
 
-def automation_blocking_reason(draft: ReplyDraft, mode: str) -> tuple[str, str] | None:
-    """Additional requirements for publishing a newly generated draft automatically."""
+def automation_blocking_reason(
+    draft: ReplyDraft, mode: str, *, policy: bool = True, allowlist: dict | None = None,
+    evidence: str = "",
+) -> tuple[str, str] | None:
+    """Additional requirements for publishing a newly generated draft automatically.
+
+    ``policy`` adds the deterministic reply-policy check after the agreement check;
+    ``automation_policy.decide`` passes False and applies it itself so it can class the
+    result as POLICY_BLOCK. Existing codes and their order are unchanged.
+    """
     if not draft.triage:
         return "triage_required", "Contextual triage is required."
     triage_cat = draft.triage.get("category")
@@ -88,7 +103,7 @@ def automation_blocking_reason(draft: ReplyDraft, mode: str) -> tuple[str, str] 
     if any(
         value in ("uncertain", "other")
         for classification in classifications
-        for value in classification.values()
+        for value in (classification.get(key) for key in ("sentiment", "intent"))
     ):
         return "confidence_insufficient", "A model classification is uncertain."
     if draft.review_status != "complete" or not draft.quality:
@@ -104,7 +119,15 @@ def automation_blocking_reason(draft: ReplyDraft, mode: str) -> tuple[str, str] 
         return "review_findings", "The secondary-model review reported findings for human review."
     if draft.agreement != "agree":
         return "models_disagree", "The models did not clearly agree; keep this reply for review."
-    if mode not in ("auto_on_agreement", "approve_all", "dry_run"):
+    if policy and settings.reply_policy_mode == "enforce_auto":
+        violation = reply_policy.blocking(reply_policy.check(
+            getattr(draft, "text", "") or "", comment=getattr(draft, "original_comment", "") or "",
+            evidence=evidence,
+            allowlist=allowlist, commenter_handle=getattr(draft, "source_author_display_name", None)))
+        if violation:
+            return (f"reply_policy:{violation.rule}",
+                    "The reply contains content that needs a person to approve it.")
+    if mode not in AUTOMATIC_MODES:
         return "manual_review_required", "This publishing mode does not allow automatic replies."
     return None
 
@@ -118,6 +141,10 @@ def review_summary(draft: ReplyDraft) -> dict:
         "confidence": quality.get("confidence"),
         "findings": quality.get("findings") or [],
         "agreement": draft.agreement,
+        # Deterministic reply-policy findings; warnings only for manual publication.
+        "policy": [violation.as_dict() for violation in reply_policy.check(
+            draft.text or "", comment=draft.original_comment or "",
+            commenter_handle=getattr(draft, "source_author_display_name", None))],
     }
 
 

@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -464,14 +465,33 @@ def comment_text(snippet: dict[str, Any]) -> str | None:
     return None
 
 
+@dataclass(frozen=True)
+class CommentSnapshot:
+    text: str
+    updated_at: datetime | None = None
+    total_reply_count: int = 0
+    author_channel_id: str | None = None
+    author_display_name: str | None = None
+
+
 async def get_owned_comment(connection, credentials, video_id: str, comment_id: str) -> str:
+    """Compatibility wrapper preserving the original authoritative text contract."""
+    return (await get_owned_comment_snapshot(connection, credentials, video_id, comment_id)).text
+
+
+async def get_owned_comment_snapshot(connection, credentials, video_id: str,
+                                     comment_id: str, *, before_read=None) -> CommentSnapshot:
     """Read authoritative text; never accept client ownership or text claims."""
+    if before_read:
+        await before_read()
     if not await video_belongs_to_channel(connection, credentials, video_id):
         raise YouTubeFailure("video_unavailable", "Video is not in your channel uploads.", 404)
 
     # An id-filtered comments.list response omits snippet.videoId, so it cannot bind a
     # comment to a video. The thread response always carries videoId, and a thread whose
     # topLevelComment is this id also proves the comment is top-level.
+    if before_read:
+        await before_read()
     threads = await youtube_request(
         credentials, "commentThreads", "list", part="snippet", id=comment_id
     )
@@ -502,6 +522,8 @@ async def get_owned_comment(connection, credentials, video_id: str, comment_id: 
             404,
         )
 
+    if before_read:
+        await before_read()
     payload = await youtube_request(
         credentials, "comments", "list", part="snippet", id=comment_id, textFormat="plainText"
     )
@@ -529,7 +551,16 @@ async def get_owned_comment(connection, credentials, video_id: str, comment_id: 
             )
         if len(text) > 20000:
             raise YouTubeFailure("comment_text_unavailable", "That comment is too long to draft.", 404)
-        return text
+        try:
+            updated_at = datetime.fromisoformat(snippet["updatedAt"])
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=UTC)
+        except (KeyError, TypeError, ValueError):
+            updated_at = None
+        return CommentSnapshot(text=text, updated_at=updated_at,
+                               total_reply_count=thread_snippet.get("totalReplyCount", 0),
+                               author_channel_id=(snippet.get("authorChannelId") or {}).get("value"),
+                               author_display_name=snippet.get("authorDisplayName"))
     raise YouTubeFailure(
         "comment_id_mismatch", "YouTube returned a different comment than requested.", 404
     )
@@ -613,6 +644,7 @@ async def list_channel_comments(
         "part": "snippet",
         "allThreadsRelatedToChannelId": channel_id,
         "maxResults": 100,
+        "order": "time",
         "textFormat": "plainText",
     }
     if page_token:
@@ -628,6 +660,7 @@ async def list_channel_comments(
                 "comment_id": comment.get("id"),
                 "video_id": thread_snippet.get("videoId"),
                 "video_title": thread_snippet.get("videoTitle") or None,
+                "author_channel_id": snippet.get("authorChannelId", {}).get("value"),
                 "author_name": snippet.get("authorDisplayName", "YouTube user"),
                 "author_thumbnail_url": snippet.get("authorProfileImageUrl"),
                 "published_at": snippet.get("publishedAt"),
@@ -636,3 +669,28 @@ async def list_channel_comments(
             }
         )
     return {"items": comments, "next_page_token": payload.get("nextPageToken")}
+
+
+async def thread_state(credentials, comment_id, channel_id, known_reply_ids, *, before_read=None):
+    """Inspect at most two reply pages; incomplete scans cannot prove absence."""
+    page_token = None
+    count = 0
+    creator_ids = []
+    for _ in range(2):
+        if before_read:
+            await before_read()
+        params = {"part": "snippet", "parentId": comment_id, "maxResults": 100, "textFormat": "plainText"}
+        if page_token:
+            params["pageToken"] = page_token
+        page = await youtube_request(credentials, "comments", "list", **params)
+        for item in page.get("items", []):
+            count += 1
+            snippet = item.get("snippet") or {}
+            if ((snippet.get("authorChannelId") or {}).get("value") == channel_id
+                    and item.get("id") not in known_reply_ids):
+                creator_ids.append(item.get("id"))
+        page_token = page.get("nextPageToken")
+        if not page_token:
+            break
+    return {"total_reply_count": count, "creator_replied": bool(creator_ids),
+            "creator_reply_ids": creator_ids, "complete": not bool(page_token)}

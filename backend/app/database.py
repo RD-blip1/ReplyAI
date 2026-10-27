@@ -32,21 +32,29 @@ def in_test_run() -> bool:
 def database_url() -> str:
     """The configured URL, validated against the test harness during a test run."""
     url = settings.database_url.get_secret_value()
-    if not in_test_run():
-        return url
-    expected = os.environ.get(TEST_DATABASE_URL_ENV)
-    if expected is None:
-        raise RuntimeError(
-            f"Refusing to run against the configured database during tests: "
-            f"{TEST_DATABASE_URL_ENV} is not set. The test harness must declare the "
-            "test database before any engine or session is created."
-        )
-    if url != expected:
-        raise RuntimeError(
-            "Refusing to run against the development database during tests: the "
-            f"configured URL does not match {TEST_DATABASE_URL_ENV}. No engine was "
-            "created and no connection was opened."
-        )
+    if in_test_run():
+        # Fail closed if any likely typo of REPLYAI_TEST_* is present.
+        allowed = {TEST_DATABASE_URL_ENV, TEST_RUN_ENV}
+        for key in os.environ:
+            if key.startswith("REPLYAI_TEST") and key not in allowed:
+                raise RuntimeError(
+                    "Refusing to run against the configured database during tests: "
+                    f"unexpected test-related environment variable '{key}' detected. "
+                    "Use only the documented test variables or unset it."
+                )
+        expected = os.environ.get(TEST_DATABASE_URL_ENV)
+        if expected is None:
+            raise RuntimeError(
+                f"Refusing to run against the configured database during tests: "
+                f"{TEST_DATABASE_URL_ENV} is not set. The test harness must declare the "
+                "test database before any engine or session is created."
+            )
+        if url != expected:
+            raise RuntimeError(
+                "Refusing to run against the development database during tests: the "
+                f"configured URL does not match {TEST_DATABASE_URL_ENV}. No engine was "
+                "created and no connection was opened."
+            )
     return url
 
 

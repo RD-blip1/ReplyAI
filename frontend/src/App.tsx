@@ -4,7 +4,10 @@ import { useAppData } from './hooks/useAppData';
 import VideosPage from './pages/VideosPage';
 import InboxPage from './pages/InboxPage';
 import PostedPage from './pages/PostedPage';
+import JobsPage from './pages/JobsPage';
 import SettingsPage from './pages/SettingsPage';
+import AutomationPage from './pages/AutomationPage';
+import ReviewQueuePage from './pages/ReviewQueuePage';
 
 type Notice = { kind: 'success' | 'info' | 'error'; message: string }
 
@@ -40,15 +43,22 @@ export default function App() {
     unsavedPreferences.current = value
   }, [])
 
+  // Leaving Settings with unsaved preferences asks first; true means navigation may proceed.
+  const confirmLeave = useCallback((nextRoute: string) => {
+    if (currentRouteRef.current !== 'settings' || nextRoute === 'settings' || !unsavedPreferences.current) {
+      return true
+    }
+    if (!window.confirm('Discard unsaved reply preference changes?')) return false
+    unsavedPreferences.current = false
+    return true
+  }, [])
+
   useEffect(() => {
     const onHashChange = () => {
       const nextRoute = window.location.hash.slice(1) || 'videos'
-      if (currentRouteRef.current === 'settings' && nextRoute !== 'settings' && unsavedPreferences.current) {
-        if (!window.confirm('Discard unsaved reply preference changes?')) {
-          window.location.hash = currentRouteRef.current
-          return
-        }
-        unsavedPreferences.current = false
+      if (!confirmLeave(nextRoute)) {
+        window.location.hash = currentRouteRef.current
+        return
       }
       currentRouteRef.current = nextRoute
       setCurrentRoute(nextRoute);
@@ -64,13 +74,10 @@ export default function App() {
       window.removeEventListener('hashchange', onHashChange)
       window.removeEventListener('beforeunload', onBeforeUnload)
     }
-  }, []);
+  }, [confirmLeave]);
 
   const handleNavigate = (route: string) => {
-    if (currentRouteRef.current === 'settings' && route !== 'settings' && unsavedPreferences.current) {
-      if (!window.confirm('Discard unsaved reply preference changes?')) return
-      unsavedPreferences.current = false
-    }
+    if (!confirmLeave(route)) return
     window.location.hash = route;
     currentRouteRef.current = route
     setCurrentRoute(route);
@@ -92,7 +99,7 @@ export default function App() {
   const setupNotice: Notice | null = appData.session && !appData.session.connected
     && !appData.session.oauth_configured
     ? { kind: 'info', message: appData.session.setup_message
-        || 'Google OAuth is not configured yet. See docs/FRESH_CLONE_SETUP.md.' }
+        || 'Google OAuth is not configured yet. See docs/getting-started.md.' }
     : null
   const notice = oauthNotice ?? setupNotice
 
@@ -107,6 +114,9 @@ export default function App() {
       {currentRoute === 'videos' && <VideosPage appData={appData} />}
       {currentRoute === 'inbox' && <InboxPage appData={appData} />}
       {currentRoute === 'posted' && <PostedPage appData={appData} />}
+      {currentRoute === 'jobs' && <JobsPage appData={appData} />}
+      {currentRoute === 'automation' && <AutomationPage appData={appData} />}
+      {currentRoute === 'review' && <ReviewQueuePage appData={appData} />}
       {currentRoute === 'settings' && (
         <SettingsPage
           key={appData.session?.channel?.channel_id ?? 'disconnected'}

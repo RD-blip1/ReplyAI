@@ -6,9 +6,11 @@ type Draft = {
   id: string; text: string; revision: number; original_comment: string
   video_id: string; comment_id: string
   primary_classification: Classification | null; secondary_classification: Classification | null
+  triage?: { category: string; confidence: number } | null
   agreement: string; generation_status: string; review_status: string; human_decision: string
   quality: { relevance: string; unsupported_claims: string; inappropriate_content: string; confidence?: number; findings: string[] } | null
-  failure: Record<string, string>; providers: Record<string, { model: string }>
+  // Stage codes, plus worker metadata such as _worker_retry or retry_after_seconds.
+  failure: Record<string, unknown>; providers: Record<string, { model: string }>
   token_usage: Partial<Record<'generation' | 'classification' | 'quality', StageUsage>>
 }
 type UsageEntry = {
@@ -38,7 +40,8 @@ type Eligibility = {
   eligible: boolean; blocked_code: string | null; blocked_message: string | null
   scope_available: boolean; channel_title: string; revision: number
   review: { review_status: string; checks: Record<string, string | null>
-            confidence: number | null; findings: string[]; agreement: string }
+            confidence: number | null; findings: string[]; agreement: string
+            policy?: { rule: string; level: string; detail: string }[] }
 }
 type PublicationState = { publication: Publication | null; eligibility: Eligibility }
 type Turn = {
@@ -50,6 +53,12 @@ const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001').r
 const stageLabels: Record<string, string> = {
   generation: 'Generation', classification: 'Classification', quality: 'Quality review',
   refinement: 'Reply refinement',
+}
+// Only string-valued stage codes are shown; worker bookkeeping (objects, numbers and
+// underscore-prefixed keys) shares the failure map and is not user-facing.
+function stageFailures(failure: Record<string, unknown> | null | undefined): [string, string][] {
+  return Object.entries(failure ?? {}).filter(
+    (entry): entry is [string, string] => !entry[0].startsWith('_') && typeof entry[1] === 'string')
 }
 const failureMessages: Record<string, string> = {
   video_unavailable: 'This video is no longer in your channel uploads.',
@@ -388,6 +397,54 @@ function RefinementConversation({ draft, csrf, dirty, configured, blocked, onApp
   </details>
 }
 
+type Reconciliation = { state: string; candidates: { reply_comment_id: string }[]; scan_complete: boolean }
+
+// An unknown outcome is resolved only by a person. "Check YouTube" reads the replies
+// and reports a candidate; it never marks anything posted and never sends a reply.
+function Reconcile({ draft, csrf, onResolved }: {
+  draft: Draft; csrf: string; onResolved: (state: PublicationState) => void
+}) {
+  const [seen, setSeen] = useState<{ reconciliation: Reconciliation; message: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function check() {
+    setBusy(true); setError(null)
+    try {
+      setSeen(await request(`/${draft.id}/publication/check`, { method: 'POST', headers: { 'X-CSRF-Token': csrf } }))
+    } catch (cause) {
+      setError(messageOf(cause, 'YouTube could not be checked.'))
+    } finally { setBusy(false) }
+  }
+
+  async function resolve(resolution: 'posted' | 'not_posted') {
+    const prompt = resolution === 'posted'
+      ? 'Confirm that this reply is on YouTube. ReplyAI will record it as posted.'
+      : 'Confirm that this reply is NOT on YouTube. ReplyAI will allow posting it again.'
+    if (!window.confirm(prompt)) return
+    setBusy(true); setError(null)
+    try {
+      const candidates = seen?.reconciliation.candidates ?? []
+      await request(`/${draft.id}/publication/reconcile`, {
+        method: 'POST', headers: { 'X-CSRF-Token': csrf },
+        body: JSON.stringify({ resolution, ...(candidates.length === 1 ? { reply_comment_id: candidates[0].reply_comment_id } : {}) }),
+      })
+      onResolved(await request<PublicationState>(`/${draft.id}/publication`))
+    } catch (cause) {
+      setError(messageOf(cause, 'The outcome could not be recorded.'))
+    } finally { setBusy(false) }
+  }
+
+  return <div className="draft-actions" aria-label="Reconcile unknown outcome">
+    <button type="button" disabled={busy} onClick={() => void check()}>Check YouTube</button>
+    {seen && <p role="status">{seen.message}</p>}
+    {seen?.reconciliation.state === 'external_match_found' &&
+      <button type="button" disabled={busy} onClick={() => void resolve('posted')}>It is on YouTube</button>}
+    {seen && <button type="button" disabled={busy} onClick={() => void resolve('not_posted')}>It is not on YouTube</button>}
+    {error && <p className="draft-error" role="alert">{error}</p>}
+  </div>
+}
+
 function PublishReply({ draft, csrf, state, dirty, blocked, onPublished }: {
   draft: Draft
   csrf: string
@@ -478,6 +535,7 @@ function PublishReply({ draft, csrf, state, dirty, blocked, onPublished }: {
         : <p>ReplyAI asked YouTube to post this reply and cannot tell whether it arrived, so it
             will not send it again. Open the video’s replies and check. This draft stays blocked
             until you confirm the outcome there.</p>}
+      {record.status === 'unknown' && <Reconcile draft={draft} csrf={csrf} onResolved={onPublished} />}
     </section>
   }
 
@@ -521,6 +579,12 @@ function PublishReply({ draft, csrf, state, dirty, blocked, onPublished }: {
           && <p className="refinement-reason" role="status">
             Secondary-review confidence: {Math.round(state.eligibility.review.confidence * 100)}%.
           </p>}
+        {(state?.eligibility?.review?.policy?.length ?? 0) > 0 &&
+          <div className="refinement-reason" role="status" aria-label="Reply policy warnings">
+            <p>Reply-safety warnings (automatic posting would hold this reply):</p>
+            <ul>{state?.eligibility?.review?.policy?.map((v, i) =>
+              <li key={i}>{v.rule} · {v.level.replaceAll('_', ' ')} · {v.detail}</li>)}</ul>
+          </div>}
         {state?.eligibility?.review?.agreement === 'disagree' &&
           <p className="refinement-reason" role="status">
             The two models classified the original comment differently. Automatic publishing
@@ -819,7 +883,7 @@ export default function DraftPanel({ videoId, commentId, csrf }: {
               <ul className="list-disc pl-5 space-y-1">{draft.quality.findings.map((f, i) => <li key={i}>{f}</li>)}</ul>
             </div>}
             
-            {Object.entries(draft.failure).map(([stage, failure]) => <p className="text-error" key={stage}>
+            {stageFailures(draft.failure).map(([stage, failure]) => <p className="text-error" key={stage}>
               {stageLabels[stage] || stage}: {failureMessages[failure] || failure}
             </p>)}
             
@@ -829,6 +893,8 @@ export default function DraftPanel({ videoId, commentId, csrf }: {
             </div>
             
             <div className="border-t border-dark-700 pt-3 text-xs">
+              {draft.triage && <p>Comment assessment: {draft.triage.category.replaceAll('_', ' ')}.
+                {!draft.text && ' No reply was generated for this comment.'}</p>}
               <p>Revision {draft.revision} · Gen: {draft.generation_status} · Review: {draft.review_status}</p>
               {draft.review_status === 'pending' && !busy && <p className="text-warning mt-1">Review pending. Reload to check.</p>}
             </div>

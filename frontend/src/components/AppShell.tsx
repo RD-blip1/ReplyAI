@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
-import { MessageCircle, Video, Inbox, History, Settings, ChevronDown } from 'lucide-react';
+import { MessageCircle, Video, Inbox, History, Settings, ChevronDown, ListChecks, Bot, ClipboardCheck } from 'lucide-react';
 import type { ConnectionStatus } from '../lib/types';
+import { apiRequest } from '../lib/api';
+import SimulationPanel from './SimulationPanel';
 
 interface AppShellProps {
   currentRoute: string;
@@ -16,6 +18,9 @@ export default function AppShell({ currentRoute, onNavigate, session, children, 
     { id: 'videos', label: 'Videos', icon: Video },
     { id: 'inbox', label: 'Comment inbox', icon: Inbox },
     { id: 'posted', label: 'Posted', icon: History },
+    { id: 'jobs', label: 'Jobs', icon: ListChecks },
+    { id: 'automation', label: 'Automation', icon: Bot },
+    { id: 'review', label: 'Review queue', icon: ClipboardCheck },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -73,6 +78,30 @@ export default function AppShell({ currentRoute, onNavigate, session, children, 
         </header>
       </div>
       
+      {session?.simulation && (
+        <div className="px-6 max-w-[1440px] mx-auto w-full">
+          <div role="status" aria-label="Simulation mode"
+            className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-2 text-sm text-warning">
+            <span><strong>SIMULATION MODE</strong> — simulated YouTube channel and scripted model responses.
+              Nothing is sent to YouTube or to a model provider.</span>
+            {!session.connected && (
+              <button type="button" className="underline font-medium"
+                onClick={() => void apiRequest('/api/simulation/connect', {
+                  method: 'POST', headers: { 'X-CSRF-Token': session.csrf_token ?? '' },
+                }).then(() => window.location.reload())}>
+                Connect simulated channel
+              </button>
+            )}
+            {session.connected && (
+              <details className="w-full">
+                <summary className="cursor-pointer font-medium">Simulation controls</summary>
+                <SimulationPanel csrf={session.csrf_token ?? ''} />
+              </details>
+            )}
+          </div>
+        </div>
+      )}
+
       {notice && (
         <div className="px-6 max-w-[1440px] mx-auto w-full">
           <div

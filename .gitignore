@@ -1,44 +1,37 @@
-# Local environment values; keep example templates tracked.
+# Local configuration and secrets; only the *.env.example templates are tracked.
 .env
 .env.*
 !.env.example
 **/.env
 **/.env.*
 !**/.env.example
+*client_secret*.json
+google-oauth-client*.json
 
 # JavaScript dependencies and build output.
 node_modules/
 dist/
 .vite/
 
-# Python environments, caches, and test output.
+# Python environments and caches.
 .venv/
 venv/
 __pycache__/
 *.py[cod]
-.pytest_cache/
+*.egg-info/
 .ruff_cache/
+.pytest_cache/
 .coverage
 htmlcov/
-*.egg-info/
+
+# Local development stack: logs, PIDs and simulated channel state.
+logs/
+backend/.simulation/
 
 # Editor and operating-system files.
 .DS_Store
 Thumbs.db
 .idea/
-
-# One-off development scripts and editor/merge backups. Not part of the app.
+.vscode/
 *.orig
 *.bak
-patch_*.py
-scratch_*.py
-update_*.py
-fix_*.patch
-user_prompt.txt
-
-# Local cleanup backups, if ever created inside the repository.
-_cleanup_backup/
-
-# Internal recovery/verification notes; kept locally, never shared.
-docs/copilot-recovery-report.md
-docs/manual-testing-tomorrow.md

@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
@@ -11,14 +11,12 @@ from app.models import AppSession, PublishingSettings
 from app.models.session import utc_now
 from app.routers.drafts import fail
 from app.routers.youtube import _owned_channel
+from app.services.publishing import PublishingMode
 
 router = APIRouter(prefix="/api/publishing-settings", tags=["publishing-settings"])
 Db = Annotated[AsyncSession, Depends(get_db)]
 Session = Annotated[AppSession, Depends(get_current_session)]
 Csrf = Annotated[AppSession, Depends(require_csrf)]
-
-PublishingMode = Literal["manual_review", "auto_on_agreement", "approve_all", "dry_run"]
-
 
 class PublishingModeUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
