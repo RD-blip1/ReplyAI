@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import RedirectResponse
 
+from app import simulation
 from app.config import settings
 from app.dependencies import get_current_session, get_db, hash_secret, require_csrf
 from app.models import AppSession, ChannelOwner, YouTubeConnection
@@ -56,6 +57,8 @@ class SessionStatus(BaseModel):
     setup_message: str | None
     connected: bool
     channel: ChannelSummary | None
+    # True only in the dev-only simulation mode (app/simulation.py).
+    simulation: bool = False
 
 
 class AuthorizationStart(BaseModel):
@@ -217,6 +220,7 @@ async def session_status(
         setup_message=issue[1] if issue else None,
         connected=connection is not None,
         channel=channel,
+        simulation=simulation.enabled(),
     )
 
 

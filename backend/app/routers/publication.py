@@ -2,10 +2,10 @@
 
 This is the first and only path in the application that changes anything on YouTube, and
 it is deliberately narrow. Manual publication requires one person to confirm the
-connected channel, target, revision, and exact text. Automatic publication is called
-only by a just-completed explicit generation/regeneration request when the channel's
-current policy and every server-side safety check allow it. There is no schedule,
-background worker, or batch operation.
+connected channel, target, revision, and exact text. Automatic publication is reached
+only from a just-completed generation (an explicit UI request or a background job) when
+the channel's publishing mode, the central decision policy and every server-side safety
+check allow it, and is limited by hourly and daily caps.
 
 The order of operations is the safety property. Everything is checked and the credential
 is refreshed *before* the attempt is claimed, so a failure there posts nothing and
@@ -24,20 +24,40 @@ from sqlalchemy import case, or_, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import (
     AppSession,
+    AutomationSettings,
     DraftEvaluation,
     PublishedReplyGuard,
     PublishingSettings,
     ReplyDraft,
+    ReplyPolicyAllowlist,
     ReplyPublication,
 )
 from app.models.session import utc_now
 from app.routers.drafts import Csrf, Db, Revision, Session, fail, owned
 from app.routers.youtube import _credentials, _owned_connection
-from app.services import publishing
+from app.services import automation_policy, job_queue, publishing, revalidation
 from app.services.google_oauth import YOUTUBE_FORCE_SSL_SCOPE
 from app.services.youtube_api import YouTubePublishFailure, insert_comment_reply
+
+
+class _SlotRefused(Exception):
+    """Internal marker: the automatic-publish budgets refused a reservation."""
+
+
+class _DraftRef:
+    """The fields record_automatic_failure needs, readable after a rollback."""
+
+    def __init__(self, id, channel_owner_id, channel_id, video_id, comment_id, revision):
+        self.id = id
+        self.channel_owner_id = channel_owner_id
+        self.channel_id = channel_id
+        self.video_id = video_id
+        self.comment_id = comment_id
+        self.revision = revision
+
 
 router = APIRouter(prefix="/api/drafts", tags=["reply-publications"])
 logger = logging.getLogger(__name__)
@@ -49,7 +69,6 @@ SCOPE_MESSAGE = (
 # The provider's outcome vocabulary mapped onto the durable one. "rejected" is the only
 # value that means nothing was posted, and it is recorded as "failed".
 PUBLISH_STATUS = {"rejected": "failed", "unknown": "unknown"}
-AUTO_PUBLISH_MAX_PER_HOUR = 10
 
 
 class Publish(Revision):
@@ -126,23 +145,123 @@ async def publish(draft_id: str, body: Publish, session: Csrf, db: Db):
     return await publish_saved_draft(db, draft, connection)
 
 
+async def allowlist_for(db: AsyncSession, owner_id: str) -> dict:
+    row = await db.get(ReplyPolicyAllowlist, owner_id)
+    if row is None:
+        return {}
+    return {key: list(getattr(row, key) or []) for key in
+            ("domains", "url_prefixes", "contacts", "handles", "approved_statements")}
+
+
+def decision_context(draft, mode: str, allowlist: dict) -> automation_policy.DecisionContext:
+    return automation_policy.DecisionContext(
+        draft=draft, mode=mode, input_signals=(draft.triage or {}).get("input_signals"),
+        input_signals_mode=settings.input_signals_mode, allowlist=allowlist,
+        reply_policy_mode=settings.reply_policy_mode,
+        skip_threshold=settings.triage_skip_threshold,
+        grounding_variant=settings.grounding_variant)
+
+
+# Outcome codes produced after the policy verdict (by the claim/insert path) → class.
+_RESULT_CLASS = {
+    "published": "AUTO_PUBLISH", "publish_outcome_unknown": "AUTO_PUBLISH",
+    "would_publish": "AUTO_PUBLISH", "automation_paused": "RETRY",
+    "auto_publish_rate_limited": "RETRY", "connection_changed": "RETRY",
+    "source_read_error": "RETRY", "thread_scan_incomplete": "RETRY",
+    "youtube_budget_exhausted": "RETRY", "comment_deleted": "SKIP",
+    "creator_already_replied": "SKIP", "comment_edited": "HUMAN_REVIEW",
+    "automatic_mode_changed": "HUMAN_REVIEW", "policy_changed": "HUMAN_REVIEW",
+    "unexpected_error": "TECHNICAL_FAILURE", "blocked_unexpected_reason": "TECHNICAL_FAILURE",
+}
+
+
+def _classified(result: dict, verdict) -> dict:
+    """Attach the central decision class to a publication result."""
+    code = result.get("decision")
+    if code == "attempt_recorded":
+        status = result.get("attempt_status")
+        result.update(decision_class="AUTO_PUBLISH", decision_code="eligible",
+                      execution_result={"posted": "posted", "failed": "failed"}.get(status, "unknown"))
+        return result
+    if code in automation_policy.REAUTH_CODES or code == "insufficient_scope":
+        cls, decided = "TECHNICAL_FAILURE", "needs_reauth"
+    elif code in _RESULT_CLASS:
+        cls, decided = _RESULT_CLASS[code], {"published": "eligible", "would_publish": "eligible",
+                                             "publish_outcome_unknown": "eligible",
+                                             "creator_already_replied": "already_answered_by_creator",
+                                             "source_read_error": "revalidation_read_error"}.get(code, code)
+    elif verdict is not None and verdict.decision_class != "AUTO_PUBLISH":
+        cls, decided = verdict.decision_class, verdict.decision_code
+    else:
+        cls, decided = "HUMAN_REVIEW", code or "not_eligible"
+    dry = result.get("mode") == "dry_run"
+    execution = ("dry_run_not_sent" if dry else "posted" if code == "published"
+                 else "unknown" if code == "publish_outcome_unknown"
+                 else "deferred" if cls == "RETRY" else "not_sent")
+    result.update(decision_class=cls, decision_code=decided, execution_result=execution,
+                  reasons=list(verdict.reasons) if verdict is not None and verdict.decision_code == decided else [])
+    return result
+
+
 async def publish_generated_draft(
     draft: ReplyDraft,
-    session: AppSession,
+    session: AppSession | None,
     db: AsyncSession,
     *,
     expected_mode: str,
     expected_revision: int,
+    connection=None,
 ) -> dict | None:
-    """Consider only the draft just generated by this request for automatic publishing."""
+    """Run the central decision policy, then publish only an AUTO_PUBLISH verdict.
+
+    The returned dict keeps the historical ``decision`` codes and adds
+    ``decision_class``/``decision_code``/``execution_result``.
+    """
+    box = {}
+    result = await _publish_generated_draft(
+        draft, session, db, expected_mode=expected_mode, expected_revision=expected_revision,
+        connection=connection, verdict_box=box)
+    return _classified(result, box.get("verdict")) if result is not None else None
+
+
+async def _publish_generated_draft(
+    draft: ReplyDraft,
+    session: AppSession | None,
+    db: AsyncSession,
+    *,
+    expected_mode: str,
+    expected_revision: int,
+    connection=None,
+    verdict_box: dict,
+) -> dict | None:
+    """Consider only the draft just generated by this request for automatic publishing.
+
+    ``session`` is the browser session for the synchronous request path; a background
+    worker passes ``connection=None``'s counterpart — an already-resolved
+    ``YouTubeConnection`` — because it has no browser session. Exactly one of the two
+    must identify the channel.
+
+    Returns a decision dict (never raises for policy outcomes) so callers — including
+    the batch worker — can record why automation did or did not act.
+    """
+    automation = await db.get(AutomationSettings, draft.channel_owner_id, populate_existing=True)
+    if automation and automation.paused:
+        return {"mode": expected_mode, "decision": "automation_paused", "published": None}
     setting = await db.get(PublishingSettings, draft.channel_owner_id)
     mode = setting.mode if setting else "manual_review"
     revision = setting.revision if setting else 0
     if (mode != expected_mode or revision != expected_revision
             or mode == "manual_review" or draft.human_decision != "pending"):
-        return None
-        
-    blocked = publishing.automation_blocking_reason(draft, mode)
+        return {"mode": mode, "decision": "policy_changed", "published": None}
+
+    allowlist = await allowlist_for(db, draft.channel_owner_id)
+    verdict = automation_policy.decide(decision_context(draft, mode, allowlist))
+    verdict_box["verdict"] = verdict
+    # Historical codes for callers and the UI; the verdict adds the policy checks the
+    # older predicate did not have (sarcasm, input signals, two-model invariant, language, ...).
+    blocked = publishing.automation_blocking_reason(draft, mode, allowlist=allowlist)
+    if blocked is None and verdict.decision_class != "AUTO_PUBLISH":
+        blocked = (verdict.decision_code, "; ".join(verdict.reasons) or verdict.decision_code)
 
     if mode == "dry_run":
         if blocked is None:
@@ -156,14 +275,22 @@ async def publish_generated_draft(
             elif b_code == "requires_human": outcome = "skipped_requires_human"
             elif b_code in ("context_required", "review_required", "models_disagree"):
                 outcome = "needs_human_review"
-            elif b_code in ("quality_not_passed", "confidence_insufficient", "review_findings"): outcome = "blocked_quality"
+            elif b_code in ("quality_not_passed", "confidence_insufficient", "review_findings",
+                            "quality_inappropriate"): outcome = "blocked_quality"
+            elif b_code.startswith("reply_policy:") or b_code == "input_obfuscation_suspected":
+                outcome = "blocked_policy"
+            elif b_code in ("sarcasm_possible", "multi_intent_risk", "needs_creator_answer",
+                            "language_uncertain", "triage_uncertain", "triage_low_confidence_skip"):
+                outcome = "needs_human_review"
             elif b_code in ("triage_required", "generation_required", "manual_review_required"): outcome = "blocked_policy"
             else: outcome = "blocked_unexpected_reason"
-            
+
         if outcome == "would_publish":
             try:
-                connection = await _owned_connection(db, session)
-                await db.refresh(connection)
+                if connection is None:
+                    connection = await _owned_connection(db, session)
+                else:
+                    await db.refresh(connection)
                 if connection.channel_id != draft.channel_id or YOUTUBE_FORCE_SSL_SCOPE not in (connection.scopes or '').split():
                     outcome = "missing_auth"
                 else:
@@ -176,7 +303,7 @@ async def publish_generated_draft(
                             outcome = "unexpected_error"
                     except Exception:  # noqa: BLE001 - dry run must fail closed on any error
                         outcome = "unexpected_error"
-                    
+
                     if outcome == "would_publish":
                         guard = await publishing.guard_for(db, connection.channel_id, draft.comment_id)
                         if guard is not None and guard.draft_id != draft.id:
@@ -193,29 +320,50 @@ async def publish_generated_draft(
                 outcome = "unexpected_error"
 
         await record_automatic_failure(db, draft, expected_revision, outcome, blocked[1] if blocked else "Dry run evaluation complete.")
-        return None
+        return {"mode": mode, "decision": outcome,
+                "reason": blocked[1] if blocked else "Dry run evaluation complete.",
+                "published": None}
 
     if blocked:
-        return None
+        return {"mode": mode, "decision": blocked[0], "reason": blocked[1], "published": None}
+
+    # Snapshot before publishing: a failure inside publish_saved_draft may roll the
+    # transaction back, which expires the ORM object, and reading an expired attribute
+    # in async context raises MissingGreenlet instead of reporting the real decision.
+    draft_id, draft_revision, draft_text = draft.id, draft.revision, draft.text
+    draft_owner_id = draft.channel_owner_id
+    draft_channel_id = draft.channel_id
+    draft_video_id = draft.video_id
+    draft_comment_id = draft.comment_id
+    # A plain stand-in with the same fields, so recording a failure after a rollback
+    # never reads an expired ORM attribute.
+    draft_ref = _DraftRef(draft_id, draft_owner_id, draft_channel_id,
+                          draft_video_id, draft_comment_id, draft_revision)
 
     try:
-        connection = await _owned_connection(db, session)
+        if connection is None:
+            connection = await _owned_connection(db, session)
 
-        return await publish_saved_draft(
+        result = await publish_saved_draft(
             db, draft, connection, automated_mode=mode,
             expected_settings_revision=expected_revision,
         )
+        return {"mode": mode, "decision": "published", "published": result}
     except HTTPException as exc:
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         code = detail.get("code", "automatic_publish_failed")
         message = detail.get("message", "Automatic publishing could not be completed.")
+        if code in {"source_read_error", "youtube_budget_exhausted", "thread_scan_incomplete"}:
+            return {"mode": mode, "decision": code, "reason": message, "published": None}
         if code == "automatic_mode_changed":
-            return None
-        attempt = await publishing.latest_attempt(db, draft.id)
-        if (attempt is not None and attempt.draft_revision == draft.revision
-                and attempt.text == draft.text
+            return {"mode": mode, "decision": code, "reason": message, "published": None}
+        attempt = await publishing.latest_attempt(db, draft_id)
+        if (attempt is not None and attempt.draft_revision == draft_revision
+                and attempt.text == draft_text
                 and attempt.status in ("posted", "failed", "unknown", "sending")):
-            return None
+            # The durable attempt already answers for this revision; nothing to record.
+            return {"mode": mode, "decision": "attempt_recorded",
+                    "attempt_status": attempt.status, "published": None}
         if code in {
             "auto_publish_rate_limited",
             "insufficient_scope",
@@ -224,12 +372,12 @@ async def publish_generated_draft(
             "youtube_not_connected",
             "connection_changed",
         }:
-            await record_automatic_failure(db, draft, expected_revision, code, message)
-            return None
+            await record_automatic_failure(db, draft_ref, expected_revision, code, message)
+            return {"mode": mode, "decision": code, "reason": message, "published": None}
         # Conflicts are safe fallbacks: a human can inspect the existing attempt or
         # the draft. The existing durable publication state remains authoritative.
         if exc.status_code in (404, 409):
-            return None
+            return {"mode": mode, "decision": code, "reason": message, "published": None}
         raise
 
 
@@ -255,7 +403,8 @@ async def publish_saved_draft(
         if (setting is None or setting.mode != automated_mode
                 or setting.revision != expected_settings_revision):
             fail(409, "automatic_mode_changed", "Automatic publishing was turned off.")
-        blocked = publishing.automation_blocking_reason(draft, automated_mode)
+        blocked = publishing.automation_blocking_reason(
+            draft, automated_mode, allowlist=await allowlist_for(db, draft.channel_owner_id))
         if draft.human_decision != "pending":
             blocked = ("human_decision_changed", "This reply now requires human review.")
     if blocked:
@@ -298,6 +447,28 @@ async def publish_saved_draft(
     if YOUTUBE_FORCE_SSL_SCOPE not in (connection.scopes or '').split():
         fail(403, "insufficient_scope", SCOPE_MESSAGE)
 
+    if settings.revalidate_before_publish:
+        source_state = await revalidation.revalidate(
+            connection, credentials, draft, db, budgeted=automated_mode is not None)
+        if source_state.kind != "unchanged":
+            code = source_state.reason if source_state.kind != "read_error" else "source_read_error"
+            fail(409 if source_state.kind != "read_error" else 503, code,
+                 "The source comment must be checked again before this reply can be posted.")
+
+    if automated_mode is not None:
+        # Serialize pause with the claim transaction. Pause may take effect before
+        # this lock (block) or after claim commits (already in flight).
+        gate = await db.get(AutomationSettings, draft.channel_owner_id, populate_existing=True)
+        if gate is not None:
+            allowed = await db.execute(update(AutomationSettings).where(
+                AutomationSettings.channel_owner_id == draft.channel_owner_id,
+                AutomationSettings.paused.is_(False),
+            ).values(updated_at=AutomationSettings.updated_at)
+              .execution_options(synchronize_session=False))
+            if allowed.rowcount != 1:
+                await db.rollback()
+                fail(409, "automation_paused", "Automatic publication is paused.")
+
     publication = await claim(
         db,
         draft,
@@ -330,6 +501,10 @@ async def publish_saved_draft(
             credentials, draft.comment_id, draft.text
         )
     except YouTubePublishFailure as exc:
+        # Snapshot before the rollback below expires the ORM objects: reading an
+        # expired attribute would lazily reload it outside a greenlet and raise
+        # MissingGreenlet, replacing a correct decision with an unexpected error.
+        draft_id, operation_id = draft.id, publication.operation_id
         try:
             await settle(
                 db, publication, PUBLISH_STATUS[exc.outcome],
@@ -342,7 +517,7 @@ async def publish_saved_draft(
             await db.rollback()
             logger.warning(
                 "Could not record publication outcome draft=%s operation=%s code=%s",
-                draft.id, publication.operation_id, exc.code,
+                draft_id, operation_id, exc.code,
             )
         fail(exc.status_code, exc.code, exc.message)
 
@@ -352,10 +527,11 @@ async def publish_saved_draft(
         # The reply is public but the confirmation could not be stored. Reporting it as
         # posted would be a claim the database cannot support, and reporting it as
         # failed would invite a duplicate, so it is reported as unknown.
+        draft_id, operation_id = draft.id, publication.operation_id
         await db.rollback()
         logger.warning(
             "Reply was created but its record could not be saved draft=%s operation=%s",
-            draft.id, publication.operation_id,
+            draft_id, operation_id,
         )
         fail(502, "publish_outcome_unknown",
              "The reply may have been posted, but ReplyAI could not record it. Check the "
@@ -456,46 +632,83 @@ async def claim(
 async def reserve_automatic_slot(
     db: AsyncSession, owner_id: str, mode: str, expected_revision: int | None
 ) -> None:
-    """Atomically recheck mode and reserve one of ten automatic sends per hour."""
+    """Atomically recheck mode and reserve one automatic send against both budgets.
+
+    The hourly window stays on ``publishing_settings`` (existing behavior). The daily
+    budget is a shared ``rate_limit_counters`` token acquired inside this same
+    transaction, so the token commits or rolls back with the claim and two workers
+    cannot both take the last one.
+
+    Both reservations happen inside one savepoint. A refusal rolls the savepoint back,
+    which discards a daily token staged just before an hourly refusal (and an hourly
+    increment staged just before a daily refusal). A session-wide rollback would do the
+    same but also expire the caller's ORM objects, which an AsyncSession cannot reload
+    outside a greenlet.
+    """
     now = utc_now()
     expires_before = now - timedelta(hours=1)
     reset_window = or_(
         PublishingSettings.auto_publish_window_started_at.is_(None),
         PublishingSettings.auto_publish_window_started_at <= expires_before,
     )
-    result = await db.execute(
-        update(PublishingSettings)
-        .where(
-            PublishingSettings.channel_owner_id == owner_id,
-            PublishingSettings.mode == mode,
-            PublishingSettings.revision == expected_revision,
-            or_(reset_window, PublishingSettings.auto_publish_count < AUTO_PUBLISH_MAX_PER_HOUR),
-        )
-        .values(
-            auto_publish_count=case(
-                (reset_window, 1),
-                else_=PublishingSettings.auto_publish_count + 1,
-            ),
-            auto_publish_window_started_at=case(
-                (reset_window, now),
-                else_=PublishingSettings.auto_publish_window_started_at,
-            ),
-            updated_at=now,
-        )
-        .execution_options(synchronize_session=False)
-    )
-    if result.rowcount == 1:
-        return
+    refusal: str | None = None
+    try:
+        async with db.begin_nested():
+            if not await job_queue.try_acquire(
+                db,
+                f"auto_publish:day:{owner_id}",
+                per_minute=0,
+                per_day=settings.auto_publish_max_per_day,
+                commit=False,
+            ):
+                refusal = "day"
+                raise _SlotRefused
+            result = await db.execute(
+                update(PublishingSettings)
+                .where(
+                    PublishingSettings.channel_owner_id == owner_id,
+                    PublishingSettings.mode == mode,
+                    PublishingSettings.revision == expected_revision,
+                    or_(
+                        reset_window,
+                        PublishingSettings.auto_publish_count
+                        < settings.auto_publish_max_per_hour,
+                    ),
+                )
+                .values(
+                    auto_publish_count=case(
+                        (reset_window, 1),
+                        else_=PublishingSettings.auto_publish_count + 1,
+                    ),
+                    auto_publish_window_started_at=case(
+                        (reset_window, now),
+                        else_=PublishingSettings.auto_publish_window_started_at,
+                    ),
+                    updated_at=now,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if result.rowcount == 1:
+                return
+            refusal = "hour"
+            raise _SlotRefused
+    except _SlotRefused:
+        pass
 
-    setting = await db.get(PublishingSettings, owner_id)
-    if setting is not None:
-        await db.refresh(setting)
+    setting = await db.get(PublishingSettings, owner_id, populate_existing=True)
     if setting is None or setting.mode != mode:
         fail(409, "automatic_mode_changed", "Automatic publishing was turned off.")
+    if refusal == "day":
+        fail(
+            429,
+            "auto_publish_rate_limited",
+            f"Automatic publishing is limited to {settings.auto_publish_max_per_day} "
+            "replies per day.",
+        )
     fail(
         429,
         "auto_publish_rate_limited",
-        f"Automatic publishing is limited to {AUTO_PUBLISH_MAX_PER_HOUR} replies per hour.",
+        f"Automatic publishing is limited to {settings.auto_publish_max_per_hour} replies per hour.",
     )
 
 

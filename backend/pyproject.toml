@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "replyai-backend"
 version = "0.1.0"
-description = "Local development API foundation for ReplyAI"
+description = "ReplyAI API and worker: dual-LLM YouTube comment replies with policy-controlled publication"
 requires-python = ">=3.12"
 dependencies = [
     "asyncpg>=0.30,<1",

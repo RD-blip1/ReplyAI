@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -17,5 +17,7 @@ class ReplyPreferences(Base):
     reply_length: Mapped[str] = mapped_column(String(20), nullable=False, default="Medium")
     language: Mapped[str] = mapped_column(String(20), nullable=False, default="English")
     channel_instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Languages ReplyAI understands as input; distinct from the reply language.
+    accepted_input_languages: Mapped[list | None] = mapped_column(JSON)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

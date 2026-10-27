@@ -1,4 +1,5 @@
 export type ConnectionStatus = {
+  simulation?: boolean
   csrf_token: string
   oauth_configured: boolean
   setup_message: string | null
@@ -43,7 +44,7 @@ export type ReplyPreferences = {
   revision: number
 }
 
-export type PublishingMode = 'manual_review' | 'auto_on_agreement' | 'approve_all'
+export type PublishingMode = 'manual_review' | 'auto_on_agreement' | 'approve_all' | 'dry_run'
 
 export type PublishingSettings = {
   mode: PublishingMode
@@ -72,4 +73,119 @@ export type PublicationItem = {
 export type PublicationPage = {
   items: PublicationItem[]
   total: number
+}
+
+export type JobStatus =
+  | 'pending'
+  | 'retry'
+  | 'processing'
+  | 'verified'
+  | 'publish_claimed'
+  | 'published'
+  | 'review'
+  | 'skipped'
+  | 'failed'
+  | 'unknown'
+  | 'needs_reauth'
+  | 'cancelled'
+
+export type ReplyJob = {
+  id: string
+  batch_id: string | null
+  channel_id: string
+  video_id: string
+  comment_id: string
+  draft_id: string | null
+  status: JobStatus
+  attempts: number
+  max_attempts: number
+  recoveries: number
+  last_error: Record<string, unknown>
+  outcome: Record<string, unknown>
+  next_run_at: string | null
+  lease_expires_at: string | null
+  created_at: string | null
+  finished_at: string | null
+}
+
+export type JobList = { items: ReplyJob[]; total: number }
+
+export type JobStats = {
+  counts: Record<string, number>
+  due_now: number
+  total: number
+}
+
+export type EnqueueResult = {
+  created: string[]
+  duplicates: number
+  batch_id: string
+}
+
+export type DecisionClass =
+  | 'AUTO_PUBLISH'
+  | 'HUMAN_REVIEW'
+  | 'SKIP'
+  | 'POLICY_BLOCK'
+  | 'RETRY'
+  | 'TECHNICAL_FAILURE'
+
+export type AutomationSettings = {
+  enabled: boolean
+  paused: boolean
+  lookback_hours: number
+  revision: number
+  enabled_at: string | null
+  discovery_cursor: string | null
+  last_poll_started_at: string | null
+  last_poll_finished_at: string | null
+  next_poll_at: string | null
+  last_error: Record<string, unknown> | null
+}
+
+export type AutomationSummary = {
+  window: string
+  decisions: { decision_class: DecisionClass; execution_result: string | null; count: number }[]
+  discovery: Record<string, number>
+}
+
+export type PolicyViolation = { rule: string; level: string; span: number[] | null; detail: string }
+
+export type AutomationDecision = {
+  id: string
+  draft_id: string | null
+  job_id: string | null
+  comment_id: string
+  video_id: string
+  decision_class: DecisionClass
+  decision_code: string
+  execution_result: string | null
+  trace: Record<string, unknown>
+  policy_version: string
+  flags: Record<string, unknown>
+  created_at: string
+  resolved_at: string | null
+  resolution: string | null
+}
+
+export type ReviewItem = {
+  decision_id: string
+  draft_id: string
+  job_id: string | null
+  video_id: string
+  comment_id: string
+  comment: string
+  reply: string
+  revision: number
+  decision_class: DecisionClass
+  decision_code: string
+  reasons: string[]
+  primary_classification: Record<string, string> | null
+  secondary_classification: Record<string, string> | null
+  agreement: string
+  quality: Record<string, unknown> | null
+  policy: PolicyViolation[]
+  input_signals: { high_risk?: boolean; high_risk_kinds?: string[] } | null
+  triage: Record<string, unknown>
+  created_at: string
 }

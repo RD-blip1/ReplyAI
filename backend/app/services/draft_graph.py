@@ -13,8 +13,17 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import ReplyDraft
-from app.services import draft_workflow, llm, publishing, reply_preferences
+from app.services import (
+    draft_workflow,
+    input_analysis,
+    llm,
+    publishing,
+    reply_preferences,
+    stage_inputs,
+    stage_pipeline,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +47,7 @@ class WorkflowContext(BaseModel):
     video_title: str | None = None
     video_description: str | None = None
     response_preferences: dict[str, str]
-    publishing_mode: Literal["manual_review", "auto_on_agreement", "approve_all", "dry_run"]
+    publishing_mode: publishing.PublishingMode
     publishing_revision: int = Field(ge=0)
 
 
@@ -88,20 +97,17 @@ async def comment_triage(state: DraftGraphState) -> dict:
     triage = await draft_workflow.call_stage(
         "secondary",
         llm.Triage,
-        "Assess if the viewer's comment is relevant to the video discussion. "
-        "on_topic means clearly relevant; generic_engagement means generic praise like 'nice video'; "
-        "off_topic means unrelated to the video context; spam_or_suspicious means spam/scam; harassment_or_abuse means abusive content; unsupported_language means not in the expected language; requires_human_attention means too complex or sensitive; "
-        "uncertain means insufficient evidence to decide. Give a short reason and a confidence score.",
-        {
-            "comment": context.original_comment,
-            "video_title": context.video_title or "Unknown",
-            "video_description": context.video_description or "None",
-            "channel_title": context.channel_title
-        },
+        stage_pipeline.specification("triage")[2],
+        stage_inputs.build("triage", context.model_dump()),
     )
+    # Same post-triage steps as the shared runner: language contract, observe-only signals.
+    analysis = input_analysis.analyze(context.original_comment)
+    value = stage_pipeline.apply_language_contract(triage.value, context.model_dump(), analysis.script_profile)
+    if value is not None and settings.input_signals_mode != "off":
+        value = {**value, "input_signals": analysis.as_dict()}
     return {
         "triage_result": triage,
-        "triage": triage.value,
+        "triage": value,
         "triage_usage": triage.usage,
         "triage_error": triage.error,
         "spent": draft_workflow.usage_attempts(
@@ -137,13 +143,8 @@ async def primary_generation(state: DraftGraphState) -> dict:
     generated = await draft_workflow.call_stage(
         "primary",
         llm.Generation,
-        reply_preferences.generation_instruction(),
-        {
-            "comment": context.original_comment,
-            "video_id": context.video_id,
-            "channel": {"channel_id": context.channel_id, "title": context.channel_title},
-            "response_preferences": context.response_preferences,
-        },
+        stage_pipeline.specification("generation")[2],
+        stage_inputs.build("generation", {**context.model_dump(), "triage": state.get("triage")}),
     )
     return {
         "generation_result": generated,
@@ -167,8 +168,8 @@ async def secondary_classification(state: DraftGraphState) -> dict:
     classified = await draft_workflow.call_stage(
         "secondary",
         llm.Classification,
-        "Independently classify the original comment sentiment and intent.",
-        {"comment": context.original_comment},
+        stage_pipeline.specification("classification")[2],
+        stage_inputs.build("classification", context.model_dump()),
     )
     return {
         "classification_result": classified,
@@ -191,8 +192,8 @@ async def review_classification(state: DraftGraphState) -> dict:
     classified = await draft_workflow.call_stage(
         "secondary",
         llm.Classification,
-        "Independently classify the original comment.",
-        {"comment": context.original_comment},
+        stage_pipeline.specification("review_classification")[2],
+        stage_inputs.build("classification", context.model_dump()),
     )
     return {
         "classification_result": classified,
@@ -227,11 +228,8 @@ async def quality_review(state: DraftGraphState) -> dict:
     reviewed = await draft_workflow.call_stage(
         "secondary",
         llm.Quality,
-        "Assess the proposed reply for relevance, unsupported claims, and inappropriate "
-        "content. pass means no issue identified; concern means an issue; uncertain means "
-        "insufficient evidence. Give concise findings and a confidence score from 0 to 1 "
-        "for this review. This is not human approval.",
-        {"comment": context.original_comment, "reply": state.get("text", "")},
+        stage_pipeline.specification("quality")[2],
+        stage_inputs.build("quality", context.model_dump(), reply=state.get("text", "")),
     )
     return {
         "quality_result": reviewed,
@@ -320,11 +318,11 @@ def evaluate_publishing_policy(state: DraftGraphState) -> dict:
 
 
 def route_after_policy(state: DraftGraphState) -> str:
-    return (
-        "protected_publish_handoff"
-        if (state.get("policy_route") == "protected_publish_handoff" and state.get("handoff"))
-        else END
-    )
+    # Every automatic-mode draft reaches the handoff: publish_generated_draft runs the
+    # central decision policy, records the decision, and publishes only an
+    # AUTO_PUBLISH verdict. A blocked route here therefore still records why.
+    route = state.get("policy_route") or "manual_review"
+    return "protected_publish_handoff" if route != "manual_review" and state.get("handoff") else END
 
 
 async def protected_publish_handoff(state: DraftGraphState) -> dict:
@@ -369,7 +367,7 @@ async def run_draft_graph(
     channel_title: str,
     video_title: str,
     video_description: str,
-    publishing_mode: Literal["manual_review", "auto_on_agreement", "approve_all", "dry_run"],
+    publishing_mode: publishing.PublishingMode,
     publishing_revision: int,
     handoff: PublishHandoff | None = None,
 ) -> ReplyDraft:

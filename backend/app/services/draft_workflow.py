@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models import ReplyDraft
 from app.models.session import utc_now
 from app.services import llm
@@ -19,28 +20,43 @@ class StageResult(NamedTuple):
     usage: dict | None
     role: str
     attempts: list[dict | None]
+    # Provider-requested backoff (seconds) when a 429 carried a legible Retry-After.
+    retry_after: int | None = None
 
 
 class StaleWorkflowResult(Exception):
     """The guarded draft revision changed while model calls were in flight."""
 
 
-async def call_stage(role, schema, instruction, data) -> StageResult:
-    """Reuse the configured provider wrapper and convert failures to safe stage outcomes."""
-    provider = llm.provider(role)
+async def call_stage(role, schema, instruction, data, *, provider: llm.Provider | None = None) -> StageResult:
+    """Reuse the configured provider wrapper and convert failures to safe stage outcomes.
+
+    ``provider`` overrides the configured provider for evaluation, so the harness drives
+    the same wrapper (timeouts, attempt trail, error mapping) without touching settings.
+    """
+    if provider is None and settings.llm_budget_ui:
+        from app.services.llm_budget import provider as budgeted_provider
+        provider = budgeted_provider(role)
+    provider = provider or llm.provider(role)
     try:
-        async with asyncio.timeout(95):
+        async with asyncio.timeout(settings.llm_stage_timeout_seconds):
             value = await provider.complete(schema, instruction, data)
             return StageResult(
-                schema.model_validate(value.model_dump()).model_dump(),
+                # exclude_none: optional fields a model left out stay absent.
+                schema.model_validate(value.model_dump()).model_dump(exclude_none=True),
                 None,
                 provider.usage(),
                 role,
                 llm.attempt_trail(provider),
             )
     except (llm.ProviderFailure, TimeoutError) as exc:
-        code = str(exc) if isinstance(exc, llm.ProviderFailure) else "provider_timeout"
-        return StageResult(None, code, provider.usage(), role, llm.attempt_trail(provider))
+        if isinstance(exc, llm.ProviderFailure):
+            code, retry_after = str(exc), exc.retry_after
+        else:
+            code, retry_after = "provider_timeout", None
+        return StageResult(
+            None, code, provider.usage(), role, llm.attempt_trail(provider), retry_after
+        )
     except Exception:  # noqa: BLE001 - provider boundary must not expose secrets
         return StageResult(
             None, "invalid_response", provider.usage(), role, llm.attempt_trail(provider)

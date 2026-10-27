@@ -33,14 +33,16 @@ from app.routers.youtube import _credentials, _owned_channel, _owned_connection
 from app.services import (
     draft_workflow,
     llm,
+    prompts,
     publishing,
     refinement,
     reply_preferences,
+    revalidation,
     video_context,
 )
 from app.services import usage as usage_service
 from app.services.google_oauth import has_comment_read_scope
-from app.services.youtube_api import YouTubeFailure, get_owned_comment
+from app.services.youtube_api import YouTubeFailure, get_owned_comment_snapshot
 
 router = APIRouter(prefix="/api/drafts", tags=["local-drafts"])
 logger = logging.getLogger(__name__)
@@ -121,7 +123,7 @@ async def snapshot(db, session, video_id, comment_id):
         )
     credentials = await _credentials(connection, db)
     try:
-        text = await get_owned_comment(connection, credentials, video_id, comment_id)
+        text = await get_owned_comment_snapshot(connection, credentials, video_id, comment_id)
     except YouTubeFailure as exc:
         fail(exc.status_code, exc.code, exc.message)
     return connection, text
@@ -221,10 +223,39 @@ async def run_models(
         operation=operation,
         preferences=preferences,
         channel_title=channel_title,
+        video_title=video_title,
+        video_description=video_description,
     )
 
 
 async def run_models_legacy(db, draft, *, generate, operation, preferences=None, channel_title="", **kwargs):
+    if settings.stage_pipeline_shared:
+        from app.services import stage_pipeline
+        revision, token = draft.revision, draft.operation_token
+        context = {"original_comment": draft.original_comment, "video_id": draft.video_id,
+                   "channel_id": draft.channel_id, "channel_title": channel_title,
+                   "response_preferences": preferences,
+                   "video_title": kwargs.get("video_title"),
+                   "video_description": kwargs.get("video_description")}
+        run = await stage_pipeline.run_stages(draft, context, operation=operation)
+        spent, usage = [], dict(draft.token_usage or {})
+        for stage, result in run.results.items():
+            spent.extend(draft_workflow.usage_attempts(
+                result, draft_id=draft.id, revision=revision,
+                operation_token=token, operation=operation, stage=stage))
+            if result.usage and not result.error:
+                usage[stage] = result.usage
+            else:
+                usage.pop(stage, None)
+        try:
+            saved = await draft_workflow.persist_result(
+                db, draft, revision=revision, operation_token=token,
+                text=run.text, primary=run.primary, secondary=run.secondary,
+                triage=run.triage, quality=run.quality, failures=run.failures,
+                usage=usage, spent=spent)
+        except draft_workflow.StaleWorkflowResult:
+            draft_workflow.raise_stale_workflow()
+        return view(saved)
     revision, token = draft.revision, draft.operation_token
     original = {"comment": draft.original_comment}
     failures = {}
@@ -267,7 +298,7 @@ async def run_models_legacy(db, draft, *, generate, operation, preferences=None,
             call(
                 "secondary",
                 llm.Classification,
-                "Independently classify the original comment sentiment and intent.",
+                prompts.CLASSIFICATION_INSTRUCTION,
                 original,
             ),
         )
@@ -289,7 +320,7 @@ async def run_models_legacy(db, draft, *, generate, operation, preferences=None,
         classified = await call(
             "secondary",
             llm.Classification,
-            "Independently classify the original comment.",
+            prompts.REVIEW_CLASSIFICATION_INSTRUCTION,
             original,
         )
         secondary = classified.value
@@ -303,10 +334,7 @@ async def run_models_legacy(db, draft, *, generate, operation, preferences=None,
         reviewed = await call(
             "secondary",
             llm.Quality,
-            "Assess the proposed reply for relevance, unsupported claims, and inappropriate "
-            "content. pass means no issue identified; concern means an issue; uncertain means "
-            "insufficient evidence. Give concise findings and a confidence score from 0 to 1 "
-            "for this review. This is not human approval.",
+            prompts.QUALITY_INSTRUCTION,
             {**original, "reply": text},
         )
         quality = reviewed.value
@@ -452,7 +480,7 @@ async def usage_history(draft_id: str, session: Session, db: Db):
 @router.post("")
 async def create(body: Create, session: Csrf, db: Db):
     configured()
-    connection, text = await snapshot(db, session, body.video_id, body.comment_id)
+    connection, source = await snapshot(db, session, body.video_id, body.comment_id)
     owner = await _owned_channel(db, session)
     saved_preferences = await db.get(ReplyPreferences, owner.id)
     saved_publishing = await db.get(PublishingSettings, owner.id)
@@ -470,7 +498,10 @@ async def create(body: Create, session: Csrf, db: Db):
         channel_id=connection.channel_id,
         video_id=body.video_id,
         comment_id=body.comment_id,
-        original_comment=text,
+        original_comment=source.text,
+        source_updated_at=source.updated_at,
+        source_text_sha256=revalidation.text_hash(source.text),
+        source_author_display_name=source.author_display_name,
         providers=identifiers(),
         operation_token=str(uuid.uuid4()),
     )
@@ -532,7 +563,7 @@ async def edit(draft_id: str, body: Edit, session: Csrf, db: Db):
 async def regenerate(draft_id: str, body: Revision, session: Csrf, db: Db):
     configured()
     draft = await owned(db, session, draft_id)
-    connection, text = await snapshot(db, session, draft.video_id, draft.comment_id)
+    connection, source = await snapshot(db, session, draft.video_id, draft.comment_id)
     if connection.channel_id != draft.channel_id:
         fail(409, "connection_changed", "The channel connection changed. Reload the workspace.")
     saved_preferences = await db.get(ReplyPreferences, draft.channel_owner_id)
@@ -550,7 +581,10 @@ async def regenerate(draft_id: str, body: Revision, session: Csrf, db: Db):
         draft,
         body.revision,
         {
-            "original_comment": text,
+            "original_comment": source.text,
+            "source_updated_at": source.updated_at,
+            "source_text_sha256": revalidation.text_hash(source.text),
+            "source_author_display_name": source.author_display_name,
             "text": "",
             "revision": body.revision + 1,
             "providers": identifiers(),
@@ -599,14 +633,20 @@ async def consider_automatic_publication(
     # Imported at the call site because the publication router reuses draft ownership
     # dependencies from this module.
     from app.routers.publication import publish_generated_draft
+    from app.services import automation_decisions
 
-    await publish_generated_draft(
+    decided_on = automation_decisions.snapshot(draft)
+    result = await publish_generated_draft(
         draft,
         session,
         db,
         expected_mode=generation_mode,
         expected_revision=generation_mode_revision,
     )
+    if generation_mode != "manual_review":
+        # Manual mode makes no automatic decision; recording one would put every
+        # ordinary draft into the review queue.
+        await automation_decisions.record_ui_result(decided_on, result)
 
 
 @router.post("/{draft_id}/review")
@@ -631,7 +671,7 @@ async def review(draft_id: str, body: Revision, session: Csrf, db: Db):
             "human_decision": "pending",
             "failure": {},
             "operation_token": str(uuid.uuid4()),
-            "token_usage": retained_usage(draft, "generation", "classification"),
+            "token_usage": retained_usage(draft, "triage", "generation", "classification"),
         },
         idle=True,
     )
