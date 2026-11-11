@@ -23,6 +23,7 @@ from app.routers.preferences import router as preferences_router
 from app.routers.publication import router as publication_router
 from app.routers.publishing_settings import router as publishing_settings_router
 from app.routers.reconciliation import router as reconciliation_router
+from app.routers.usage import router as usage_router
 from app.routers.youtube import router as youtube_router
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ app.include_router(publishing_settings_router)
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(youtube_router)
+app.include_router(usage_router)
 app.add_middleware(SensitiveOAuthQueryRedactionMiddleware)
 
 # Dev-only simulation mode (REPLYAI_SIMULATION=1): fake YouTube + scripted models.

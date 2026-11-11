@@ -293,7 +293,19 @@ async def release_for_retry(
             (ReplyJob.attempts > 0, ReplyJob.attempts - 1), else_=0
         )
     if budget_denied:
-        values["outcome"] = {"waiting_for": "provider_budget"}
+        # Merge, never replace: a job deferred after its ``verified`` milestone must keep
+        # ``decision``/``draft_revision`` so the next claim resumes at publication instead
+        # of treating its own verified draft as foreign saved work. Read only while this
+        # worker still owns the job; the UPDATE below is fenced the same way.
+        current = await db.scalar(
+            select(ReplyJob.outcome).where(
+                ReplyJob.id == job_id,
+                ReplyJob.worker_id == worker_id,
+                ReplyJob.status.in_(("processing", "verified", "publish_claimed")),
+            )
+        )
+        # The reason (cap, read budget, connection) stays in ``last_error.code``.
+        values["outcome"] = {**(current or {}), "waiting_for": "provider_budget"}
     result = await db.execute(
         update(ReplyJob)
         .where(

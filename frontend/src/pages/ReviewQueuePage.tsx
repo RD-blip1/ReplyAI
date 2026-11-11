@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ClipboardCheck } from 'lucide-react'
+import { formatDateTime } from '../lib/format'
+import { ClipboardCheck, FileText, X } from 'lucide-react'
+import { PageHeader } from '../components/ui'
 import DraftPanel from '../DraftPanel'
 import { apiRequest, messageOf } from '../lib/api'
 import { CLASS_LABELS, CLASS_STYLES, explain } from '../lib/decisions'
 import type { ReviewItem } from '../lib/types'
 import type { useAppData } from '../hooks/useAppData'
+import { SafeText } from '../components/SafeText'
 
 type Filter = 'all' | 'HUMAN_REVIEW' | 'POLICY_BLOCK'
 
@@ -46,45 +49,59 @@ export default function ReviewQueuePage({ appData }: { appData: ReturnType<typeo
     }
   }
 
-  if (!session?.connected) return <p className="text-text-muted">Connect a YouTube channel to review held replies.</p>
+  if (!session?.connected) return <div className="page">
+    <PageHeader title="Review queue" subtitle="Comments the automation held for you. Nothing posts without your confirmation." />
+    <div className="card empty-state"><ClipboardCheck aria-hidden="true" /><p>Connect a YouTube channel to review held replies.</p></div>
+  </div>
 
-  return <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-    <section aria-label="Review queue" className="space-y-3">
-      <h1 className="text-2xl font-bold flex items-center gap-2"><ClipboardCheck className="w-6 h-6 text-brand" /> Review queue</h1>
-      <div role="radiogroup" aria-label="Filter" className="flex gap-2">
+  // Nothing open: the cards fill the page in a two-column grid. A draft open: the list
+  // narrows to one column beside the draft panel.
+  return <div className="page">
+    <PageHeader
+      title="Review queue"
+      subtitle="Comments the automation held for you. Nothing posts without your confirmation."
+      actions={<div role="radiogroup" aria-label="Filter" className="seg">
         {(['all', 'HUMAN_REVIEW', 'POLICY_BLOCK'] as Filter[]).map(value => <button key={value} type="button"
           role="radio" aria-checked={filter === value} onClick={() => setFilter(value)}
-          className={`px-3 py-1.5 rounded-full border text-sm ${filter === value ? 'border-brand text-brand' : 'border-dark-600'}`}>
+          className="seg-item">
           {value === 'all' ? 'All' : CLASS_LABELS[value]}</button>)}
-      </div>
-      {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
-      {loading ? <p role="status" className="text-sm text-text-muted">Loading…</p> : null}
-      {!loading && !error && items.length === 0 ? <p className="text-sm text-text-muted">Nothing is waiting for you.</p> : null}
-      <ul className="space-y-2">
+      </div>}
+    />
+    <div className={open ? 'grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]' : ''}>
+    <section aria-label="Review queue" className="min-w-0 space-y-4">
+      {error ? <p role="alert" className="alert alert-error">{error}</p> : null}
+      {loading ? <p role="status" className="text-[0.9375rem] text-text-muted">Loading…</p> : null}
+      {!loading && !error && items.length === 0 ? <div className="card empty-state">
+        <ClipboardCheck aria-hidden="true" /><p>Nothing is waiting for you.</p></div> : null}
+      <ul className={`grid gap-4 sm:gap-5 ${open ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
         {items.map(item => <li key={item.decision_id}
-          className={`rounded-xl border p-3 ${open?.decision_id === item.decision_id ? 'border-brand' : 'border-dark-600'} bg-dark-800/50`}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${CLASS_STYLES[item.decision_class]}`}>
-              {CLASS_LABELS[item.decision_class]}</span>
-            <span className="text-xs text-text-muted">{new Date(item.created_at).toLocaleString()}</span>
+          className={`card review-card ${open?.decision_id === item.decision_id ? 'is-open' : ''}`}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <span className={CLASS_STYLES[item.decision_class]}>{CLASS_LABELS[item.decision_class]}</span>
+            <span className="text-sm text-text-muted tabular-nums">{formatDateTime(item.created_at)}</span>
           </div>
-          <p className="text-sm font-medium">Why: {explain(item.decision_code)}</p>
-          <p className="text-sm text-text-muted mt-1 line-clamp-2">“{item.comment}”</p>
-          {item.policy.length > 0 ? <ul className="mt-1 text-xs text-danger">
+          <p className="text-[1.0625rem] font-bold leading-snug text-text-main">Why: {explain(item.decision_code)}</p>
+          <p className="well mt-3 px-4 py-3 text-[0.9375rem] text-text-dim line-clamp-3 break-words [overflow-wrap:anywhere]">“<SafeText text={item.comment} />”</p>
+          {item.policy.length > 0 ? <ul className="mt-3 space-y-1 font-mono text-[0.8125rem] text-danger break-words [overflow-wrap:anywhere]">
             {item.policy.map((v, i) => <li key={i}>{v.rule}: {v.detail} ({v.level.replaceAll('_', ' ')})</li>)}
           </ul> : null}
-          <div className="mt-2 flex gap-2">
-            <button type="button" onClick={() => setOpen(item)} className="px-3 py-1 rounded-lg bg-brand text-white text-sm">Open draft</button>
-            <button type="button" onClick={() => void dismiss(item)} className="px-3 py-1 rounded-lg border border-dark-600 text-sm">Dismiss</button>
+          <div className="mt-auto flex flex-wrap gap-2 pt-4">
+            <button type="button" onClick={() => setOpen(item)} className="btn btn-primary btn-lg">
+              <FileText aria-hidden="true" />Open draft</button>
+            <button type="button" onClick={() => void dismiss(item)} className="btn btn-lg">Dismiss</button>
           </div>
         </li>)}
       </ul>
     </section>
-    <section aria-label="Selected draft">
-      {open ? <>
-        <p className="text-sm text-text-muted mb-2">Edit, approve and confirm as usual. Nothing posts without your confirmation.</p>
-        <DraftPanel key={open.decision_id} videoId={open.video_id} commentId={open.comment_id} csrf={csrf} />
-      </> : <p className="text-sm text-text-muted">Choose an item to open its draft.</p>}
-    </section>
+    {open ? <section aria-label="Selected draft" className="card card-pad min-w-0 xl:sticky xl:top-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 text-[0.9375rem] text-text-muted">Edit, approve and confirm as usual. Nothing posts without your confirmation.</p>
+        <button type="button" onClick={() => setOpen(null)} className="btn">
+          <X aria-hidden="true" />Close draft</button>
+      </div>
+      <DraftPanel key={open.decision_id} videoId={open.video_id} commentId={open.comment_id} csrf={csrf}
+        simulated={Boolean(session?.simulation)} />
+    </section> : null}
+    </div>
   </div>
 }

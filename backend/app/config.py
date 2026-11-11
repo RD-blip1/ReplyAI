@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # (30 requests/minute, 1000 requests/day).
     llm_requests_per_minute: int = 28
     llm_requests_per_day: int = 900
+    # Daily token ceilings per model role for the usage gauge and the replies-remaining
+    # estimate (teammate Hrishik1033, PR #3). Local ceilings set to match the provider
+    # plan (e.g. Groq's published per-model limits); not read from, or enforced by, the
+    # provider. 0 leaves the role uncapped.
+    llm_primary_tokens_per_day: int = 200_000
+    llm_secondary_tokens_per_day: int = 200_000
     # "per_attempt" charges every HTTP attempt, including provider-level retries.
     llm_budget_mode: Literal["per_attempt", "off"] = "per_attempt"
     llm_budget_ui: bool = False
@@ -71,14 +77,28 @@ class Settings(BaseSettings):
     # --- Guardrails ---
     # Re-read the source comment immediately before publishing (edited/deleted/answered).
     revalidate_before_publish: bool = True
-    input_signals_mode: Literal["off", "observe", "route_high_risk"] = "observe"
+    # route_high_risk: hidden-character concealment blocks automatic publication.
+    input_signals_mode: Literal["off", "observe", "route_high_risk"] = "route_high_risk"
     reply_policy_mode: Literal["off", "enforce_auto"] = "enforce_auto"
     language_contract: bool = True
+    # Agent-directed instructions in a comment (override, fake system/creator/verifier
+    # messages, dictated replies, credential requests) send it to a person.
+    injection_routing: Literal["off", "review"] = "review"
+    # "always": a creator-only question goes to a person whatever the grounding variant.
+    answerability_routing: Literal["grounded_only", "always"] = "always"
+    # "model_and_cues": deterministic sarcasm cues also route, unless a classifier said no.
+    sarcasm_routing: Literal["model_only", "model_and_cues"] = "model_and_cues"
+    # Account compromise, money disputes, legal threats, self-harm: always a person.
+    sensitive_topic_routing: Literal["off", "review"] = "review"
+    # Replace a generated draft with a holding reply when the policy already holds it for a
+    # creator-only question, sarcasm read literally, or a dictated reply (no model call).
+    reply_guard: bool = True
 
-    # --- Experimental switches; the defaults keep the established behaviour ---
-    # Video evidence given to the models: v0 = title/description only; v1/v2 add an
-    # evidence pack and (v2) a grounding-aware quality review.
-    grounding_variant: Literal["v0", "v1", "v2", "v3"] = "v0"
+    # --- Experiment switches (baseline arms stay reproducible by setting them) ---
+    # Video evidence given to the models: v0 = triage only sees the video; v1 (default)
+    # also gives the generator the evidence pack and tells it not to guess creator-only
+    # facts; v2 adds a grounding-aware quality review.
+    grounding_variant: Literal["v0", "v1", "v2", "v3"] = "v1"
     # Minimum triage confidence for an automatic skip; below it the comment goes to a
     # person instead. 0 = always trust the triage category.
     triage_skip_threshold: float = 0.0

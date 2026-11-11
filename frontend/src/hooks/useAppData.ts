@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { apiRequest, ApiError } from '../lib/api';
 import type { ConnectionStatus, VideoItem, CommentItem, Page } from '../lib/types';
 
@@ -109,7 +109,27 @@ export function useAppData() {
     }
   }
 
-  
+  // Re-read draft statuses for the comments on screen after a draft changes, without the
+  // loading state, without clearing the list and without touching the selection. A result
+  // for a video the user has since left is dropped.
+  const refreshCommentStatuses = useCallback(async () => {
+    const videoId = selectedVideoId.current
+    const url = videoId
+      ? `/api/youtube/videos/${encodeURIComponent(videoId)}/comments`
+      : '/api/youtube/channel/comments'
+    try {
+      const page = await apiRequest<Page<CommentItem>>(url)
+      if (selectedVideoId.current !== videoId) return
+      const fresh = new Map(page.items.map((item) => [item.comment_id, item]))
+      setComments((current) => current.map((item) => {
+        const update = fresh.get(item.comment_id)
+        return update ? { ...item, reply_status: update.reply_status, decision_code: update.decision_code } : item
+      }))
+    } catch {
+      // The badge simply stays as it was; the draft itself is already saved.
+    }
+  }, [])
+
   function selectVideo(video: VideoItem | null) {
     setSelectedComment(null)
     commentRequestSequence.current += 1
@@ -127,7 +147,7 @@ export function useAppData() {
     session, sessionLoading, sessionError,
     videos, videosLoading, videosError, nextVideoPage, loadVideoPage,
     selectedVideo, selectVideo,
-    comments, commentsLoading, commentsError, nextCommentPage, loadComments,
+    comments, commentsLoading, commentsError, nextCommentPage, loadComments, refreshCommentStatuses,
     selectedComment, setSelectedComment
   }
 }

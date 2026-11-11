@@ -10,6 +10,7 @@ from app.services import (
     input_analysis,
     llm,
     prompts,
+    reply_guard,
     reply_preferences,
     routing,
     stage_inputs,
@@ -139,6 +140,11 @@ async def run_stages(draft, ctx, *, operation='generate', providers=None,
         run.text = generated.value['reply'] if generated.value else ''
         run.primary = generated.value['classification'] if generated.value else None
         run.secondary = classified.value
+        # Holding reply for drafts the policy will hold anyway; the quality review below
+        # then judges the text that is actually saved.
+        run.text, run.triage = reply_guard.apply(
+            comment=ctx['original_comment'], reply=run.text, triage=run.triage,
+            primary=run.primary, secondary=run.secondary)
         await progress()
     elif run.secondary is None:
         run.secondary = (await stage('review_classification')).value

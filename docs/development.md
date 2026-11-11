@@ -3,6 +3,40 @@
 This guide is for people changing ReplyAI. Read [architecture.md](architecture.md) first;
 it explains the flows referred to here.
 
+## Project structure
+
+```text
+ReplyAI/
+├── backend/
+│   ├── app/
+│   │   ├── main.py            App factory: CORS, routers, log redaction, simulation hook
+│   │   ├── config.py          Typed settings (pydantic-settings, backend/.env)
+│   │   ├── worker.py          Lease-based queue worker and discovery loop
+│   │   ├── simulation.py      Development-only fake channel and scripted models
+│   │   ├── routers/           HTTP API: auth, youtube, drafts, publication, automation,
+│   │   │                      review queue, batch jobs, reconciliation, usage, health
+│   │   ├── services/          Model pipeline, LangGraph engine, decision policy,
+│   │   │                      guardrails, job queue, discovery, YouTube client
+│   │   ├── models/            SQLAlchemy 2 models
+│   │   └── middleware/        OAuth code/state redaction
+│   ├── alembic/versions/      Additive database migrations
+│   ├── pyproject.toml         Dependencies and Ruff configuration
+│   └── uv.lock                Locked dependency versions
+├── frontend/
+│   └── src/
+│       ├── App.tsx            Hash routing, OAuth notices, unsaved-changes guard
+│       ├── DraftPanel.tsx     Reply workspace: generate, verify, refine, approve, publish
+│       ├── pages/             Videos, Inbox, Posted, Jobs, Automation, Review queue, Settings
+│       ├── components/        App shell, automation controls, simulation panel,
+│       │                      token-usage gauge, safe text rendering, UI primitives
+│       ├── hooks/useAppData.ts  Session, channel, video and comment state
+│       └── lib/               API client, payload types, decision and job wording
+├── docs/                      Public documentation and screenshots
+├── scripts/dev.sh             Start, stop and inspect the local stack
+├── compose.yaml               PostgreSQL 17 and Redis 7
+└── .env.example               Compose credentials and ports
+```
+
 ## Conventions
 
 **Backend**
@@ -28,7 +62,9 @@ it explains the flows referred to here.
   surfaces `ApiError`. Mutations send the session's `X-CSRF-Token`.
 - API payload types live in `src/lib/types.ts`; keep them in step with the backend
   models.
-- Lint with `npm run lint` (oxlint) and type-check with `npm run build`.
+- Lint with `npm run lint` (oxlint) and type-check with `npx tsc -b --noEmit` or `npm run build`.
+- Render untrusted comment text through `components/SafeText.tsx`, which makes hidden
+  and direction-changing characters visible instead of letting them reorder the page.
 
 ## Common commands
 
@@ -63,28 +99,26 @@ scripts/dev.sh start sim | start real | status | stop
 | Add an API endpoint | `app/routers/`, registered in `app/main.py` | Use the `Session`/`Csrf`/`Db` dependencies and `owned()` for ownership |
 | Add a page | `frontend/src/pages/`, route in `App.tsx`, nav item in `components/AppShell.tsx` | |
 
-## API overview
+## API
 
-Interactive OpenAPI documentation is served at `http://127.0.0.1:8001/docs`. The main
-groups:
+The API groups, authentication rules and conventions are in [api.md](api.md). The
+running API serves interactive OpenAPI documentation at <http://127.0.0.1:8001/docs>.
 
-| Prefix | Purpose |
-| --- | --- |
-| `/health`, `/ready` | Liveness and readiness (PostgreSQL, Redis) |
-| `/api/session`, `/auth/google/*`, `/auth/logout` | Session and Google OAuth |
-| `/api/youtube/*` | Channel, videos, comments, posted replies (read-only) |
-| `/api/drafts/*` | Create, regenerate, review, edit, refine and decide on drafts |
-| `/api/drafts/{id}/publication` | Publish a confirmed draft; read its publication state |
-| `/api/drafts/{id}/publication/check`, `/reconcile` | Resolve unknown publication outcomes |
-| `/api/preferences`, `/api/publishing-settings` | Per-channel reply preferences and publishing mode |
-| `/api/automation/*` | Discovery switches, activity, decision trace, allow-list |
-| `/api/review-queue/*` | Drafts waiting for a person |
-| `/api/batch/jobs/*` | Enqueue, list, cancel, requeue and inspect background jobs |
-| `/api/simulation/*` | Simulation controls (only mounted when `REPLYAI_SIMULATION=1`) |
+## Testing
 
-Every mutating endpoint requires the session cookie, an allowed `Origin` and the
-`X-CSRF-Token` header. Draft mutations also carry the draft `revision` they were based
-on; a stale revision is refused with `409`.
+The automated test suites (pytest for the backend, including PostgreSQL concurrency
+tests; Vitest with Testing Library for the frontend) are maintained in the development
+repository and are **not included in this public release**. The tooling is still
+declared (`[dev]` extra in `pyproject.toml`, `vitest` in `package.json`), so you can add
+your own tests:
+
+- Backend: put tests under `backend/tests/` and run `.venv/bin/pytest`. Use simulation
+  mode or mocked providers; never call a real model or YouTube from a test.
+- Frontend: add `*.test.tsx` files with a `vitest.config.ts` (jsdom environment) and run
+  `npm test`.
+
+Whatever you change, also exercise the flow in simulation mode and check the decision
+codes on the Jobs and Automation pages.
 
 ## Database migrations
 

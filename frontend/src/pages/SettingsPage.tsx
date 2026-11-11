@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Shield, Zap, Sparkles, FileText, ChevronDown, CheckCircle2, Eye } from 'lucide-react';
+import { Bot, ChevronRight, Shield, ShieldCheck, Zap, Sparkles, FileText, ChevronDown, CheckCircle2, Eye } from 'lucide-react';
+import { Avatar, PageHeader } from '../components/ui';
+import './SettingsPage.css';
 import AutomationControls from '../components/AutomationControls';
+import TokenUsageGauge from '../components/TokenUsageGauge';
 import { apiRequest, messageOf } from '../lib/api';
 import type { PublishingMode, PublishingSettings, ReplyPreferences } from '../lib/types';
 import type { useAppData } from '../hooks/useAppData';
@@ -244,46 +247,47 @@ export default function SettingsPage({
     setLoadAttempt(value => value + 1)
   }
 
-  return (
-    <div className="flex flex-col h-full gap-6 animate-in fade-in duration-300 overflow-y-auto pb-10">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight mb-1">Settings</h1>
-        <p className="text-text-muted text-sm">Manage your channel and reply preferences.</p>
-      </header>
+  const modeLabel = activeMode ? {
+    manual_review: 'Manual review',
+    auto_on_agreement: 'Auto-publish on agreement',
+    approve_all: 'Approve all',
+    dry_run: 'Dry run',
+  }[activeMode.mode] : null
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Left Column */}
-        <div className="space-y-6">
-          
-          {/* Connected Channel Card */}
-          <section className="rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm p-6">
-            <h2 className="text-lg font-semibold mb-4">Connected channel</h2>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  {session?.channel?.channel_thumbnail_url ? (
-                    <img src={session.channel.channel_thumbnail_url} alt="" className="w-16 h-16 rounded-full border border-dark-600" />
-                  ) : (
-                    <div className="w-16 h-16 rounded-full bg-dark-700 border border-dark-600" />
-                  )}
+  return (
+    <div className="page settings-page">
+      <PageHeader title="Settings" subtitle="Manage your channel and reply preferences." />
+
+      {/* Two independent columns on desktop. Below lg the column wrappers dissolve
+          (display: contents) and `order` restores the row order: channel, automation,
+          usage, preferences, publishing mode, AI review. */}
+      <div className="settings-grid">
+        <div className="settings-col">
+          {/* Connected channel */}
+          <section className="card card-pad settings-order-1" aria-labelledby="settings-channel">
+            <h2 id="settings-channel" className="card-title mb-4">Connected channel</h2>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-4">
+                <div className="relative shrink-0">
+                  <Avatar name={session?.channel?.channel_title || 'Channel'} src={session?.channel?.channel_thumbnail_url} size={64} color="var(--accent)" />
                   {session?.connected && (
-                    <div className="absolute bottom-0 right-0 w-4 h-4 bg-success rounded-full border-[3px] border-dark-800" />
+                    <span className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-[3px] border-dark-800 bg-brand" aria-hidden="true" />
                   )}
                 </div>
-                <div>
-                  <h3 className="font-semibold text-lg">{session?.channel?.channel_title || 'Not connected'}</h3>
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-semibold text-text-main">{session?.channel?.channel_title || 'Not connected'}</h3>
                   {session?.connected ? (
-                    <div className="flex items-center gap-1.5 mt-1 px-2.5 py-0.5 rounded-full bg-success-bg border border-success/20 text-success text-xs font-medium w-fit">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span className="badge badge-green mt-2">
+                      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
                       YouTube connected
-                    </div>
+                    </span>
                   ) : (
                     <div className="text-sm text-text-muted">Connect your channel to start</div>
                   )}
                 </div>
               </div>
-              <button 
+              <button
+                type="button"
                 onClick={() => {
                   if (session?.connected) {
                     if (!dirty || window.confirm('Discard unsaved reply preference changes and disconnect?')) {
@@ -291,135 +295,37 @@ export default function SettingsPage({
                     }
                   } else connectYouTube()
                 }}
-                className="px-4 py-2 rounded-lg border border-dark-600 bg-dark-900/50 hover:bg-dark-700 text-sm font-medium transition-colors"
+                className={`btn btn-lg ${session?.connected ? '' : 'btn-primary'}`}
               >
                 {session?.connected ? 'Disconnect channel' : 'Connect channel'}
               </button>
             </div>
           </section>
 
-          {/* Reply Preferences */}
-          <section className="rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm p-6">
-            <h2 className="text-lg font-semibold mb-4">Reply preferences</h2>
-            {sessionLoading ? <p role="status" className="mb-4 text-sm text-text-muted">Checking channel connection…</p> : null}
-            {!sessionLoading && !channelId ? (
-              <p className="p-3 mb-4 rounded-lg bg-dark-900 border border-dark-600 text-sm text-text-muted">
-                Connect a YouTube channel to manage its reply preferences.
-              </p>
-            ) : null}
-            {channelId && loading ? <p role="status" className="mb-4 text-sm text-text-muted">Loading saved preferences…</p> : null}
-            {channelId && error ? (
-              <div role="alert" className="p-3 mb-4 rounded-lg bg-error-bg border border-error/20 text-error text-sm">
-                <p>{error}</p>
-                {saveError ? (
-                  <div className="flex flex-wrap gap-3 mt-2">
-                    <button onClick={() => void save()} disabled={saving} className="underline disabled:opacity-50">Retry save</button>
-                    <button onClick={retryLoading} disabled={saving} className="underline disabled:opacity-50">Reload saved preferences</button>
-                  </div>
-                ) : (
-                    <button onClick={retryLoading} className="mt-2 underline">Retry loading</button>
-                )}
-              </div>
-            ) : null}
-            
-            <fieldset disabled={!channelId || loading || !saved || saving} className="space-y-4 disabled:opacity-60">
-              <div>
-                <label className="block text-sm text-text-main mb-1.5">Tone</label>
-                <div className="relative">
-                  <select aria-label="Tone" value={form.tone} onChange={event => setForm(current => ({ ...current, tone: event.target.value as PreferenceValues['tone'] }))} className="w-full appearance-none bg-dark-900 border border-dark-600 rounded-lg px-4 py-2.5 text-sm text-text-main focus:outline-none focus:border-brand">
-                    <option>Professional</option><option>Friendly</option><option>Casual</option>
-                  </select>
-                  <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-text-main mb-1.5">Reply length</label>
-                <div className="relative">
-                  <select aria-label="Reply length" value={form.reply_length} onChange={event => setForm(current => ({ ...current, reply_length: event.target.value as PreferenceValues['reply_length'] }))} className="w-full appearance-none bg-dark-900 border border-dark-600 rounded-lg px-4 py-2.5 text-sm text-text-main focus:outline-none focus:border-brand">
-                    <option>Short</option><option>Medium</option><option>Detailed</option>
-                  </select>
-                  <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-text-main mb-1.5">Language</label>
-                <div className="relative">
-                  <select aria-label="Language" value={form.language} onChange={event => setForm(current => ({ ...current, language: event.target.value as PreferenceValues['language'] }))} className="w-full appearance-none bg-dark-900 border border-dark-600 rounded-lg px-4 py-2.5 text-sm text-text-main focus:outline-none focus:border-brand">
-                    <option>English</option><option>Hindi</option><option>Hinglish</option>
-                  </select>
-                  <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="channel-instructions" className="block text-sm text-text-main mb-1.5">Channel instructions</label>
-                <textarea
-                  id="channel-instructions"
-                  rows={3}
-                  maxLength={2000}
-                  value={form.channel_instructions}
-                  onChange={event => setForm(current => ({ ...current, channel_instructions: event.target.value }))}
-                  className="w-full bg-dark-900 border border-dark-600 rounded-lg p-3 text-sm text-text-main focus:outline-none focus:border-brand resize-y max-w-full"
-                  placeholder="Optional guidance for the style of replies."
-                />
-                <p className="mt-1 text-xs text-text-muted">{form.channel_instructions.length}/2000 characters</p>
-              </div>
-            </fieldset>
-            {dirty ? <p className="mt-3 text-xs text-warning">Unsaved changes</p> : null}
-            <div className="flex flex-wrap items-center justify-end gap-3 mt-5">
-              {dirty ? (
-                <button onClick={discardChanges} disabled={saving} className="px-4 py-2 rounded-lg border border-dark-600 text-sm font-medium disabled:opacity-50">
-                  Discard changes
-                </button>
-              ) : null}
-              {channelId && saved && !dirty && !error ? <p role="status" className="mr-auto text-sm text-success">Preferences saved</p> : null}
-              {channelId && saving ? <p role="status" className="mr-auto text-sm text-text-muted">Saving preferences…</p> : null}
-              <button onClick={() => void save()} disabled={!channelId || loading || !saved || !dirty || saving} className="px-5 py-2.5 rounded-lg bg-brand hover:bg-brand-dark text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                Save preferences
-              </button>
-            </div>
-          </section>
-        </div>
-
-        {/* Right Column */}
-        <div className="space-y-6">
-          
-          {/* Automatic operation */}
-          <section className="rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm p-6">
-            <h2 className="text-lg font-semibold mb-4">Automatic operation</h2>
-            {/* Loaded on demand: the controls also live on the Automation page. */}
-            <button type="button" aria-expanded={showAutomation} onClick={() => setShowAutomation(value => !value)}
-              className="text-sm text-text-muted underline">
-              {showAutomation ? 'Hide automation controls' : 'Turn automatic comment discovery on, off or pause it'}
-            </button>
-            {showAutomation ? <div className="mt-3">
-              <AutomationControls csrf={session?.csrf_token ?? ''} connected={Boolean(channelId)} />
-            </div> : null}
+          {/* LLM usage (gauge: teammate Hrishik1033, PR #3) */}
+          <section className="card card-pad settings-order-3" aria-labelledby="settings-usage">
+            <TokenUsageGauge connected={Boolean(channelId)}
+              heading={<h2 id="settings-usage" className="card-title">LLM usage</h2>} />
           </section>
 
           {/* Publishing mode */}
-          <section className="rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm p-6">
-            <h2 className="text-lg font-semibold mb-4">Publishing mode</h2>
+          <section className="card card-pad settings-order-5" aria-labelledby="settings-mode">
+            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <h2 id="settings-mode" className="card-title">Publishing mode</h2>
+              {channelId && !loadingMode && activeMode ? (
+                <p role="status" className="text-[0.9375rem] text-text-muted">
+                  Active mode: <span className="font-semibold text-brand">{modeLabel}</span>
+                </p>
+              ) : null}
+            </div>
             {loadingMode ? <p role="status" className="mb-3 text-sm text-text-muted">Loading publishing mode…</p> : null}
             {modeError ? (
-              <div role="alert" className="mb-3 text-sm text-danger">
-                {modeError}
-                {!channelId ? null : <button type="button" className="ml-2 underline" onClick={retryPublishingModeLoad}>Retry</button>}
+              <div role="alert" className="alert alert-error mb-3">
+                <span>{modeError}</span>
+                {!channelId ? null : <button type="button" className="link ml-auto shrink-0" onClick={retryPublishingModeLoad}>Retry</button>}
               </div>
             ) : null}
             {!channelId ? <p className="mb-3 text-sm text-text-muted">Connect a YouTube channel to manage its publishing mode.</p> : null}
-            {channelId && !loadingMode && activeMode ? (
-              <p role="status" className="mb-3 text-sm text-text-muted">
-                Active mode: <span className="font-semibold text-text-main">{{
-                  manual_review: 'Manual review',
-                  auto_on_agreement: 'Auto-publish on agreement',
-                  approve_all: 'Approve all',
-                  dry_run: 'Dry run',
-                }[activeMode.mode]}</span>
-              </p>
-            ) : null}
             <div role="radiogroup" aria-label="Publishing mode" className="space-y-3">
               {([
                 {
@@ -456,74 +362,159 @@ export default function SettingsPage({
                     aria-checked={selected}
                     disabled={!channelId || loadingMode || !activeMode || modeSaving || selected}
                     onClick={() => void savePublishingMode(mode)}
-                    className={`flex w-full items-start gap-4 p-4 rounded-xl border text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                      selected ? 'border-brand bg-brand/5' : 'border-dark-600 bg-dark-900/50 hover:border-dark-500'
-                    }`}
+                    className={`mode-option ${selected ? 'is-selected' : ''}`}
                   >
-                    <span className={`mt-1 w-5 h-5 shrink-0 rounded-full border-2 ${selected ? 'border-[5px] border-brand bg-dark-900' : 'border-dark-500'}`} />
-                    <Icon className={`w-6 h-6 shrink-0 ${selected ? 'text-brand-light' : 'text-text-muted'}`} />
-                    <span>
-                      <span className="block font-semibold text-text-main">{title}</span>
-                      <span className="block text-sm text-text-muted">{description}</span>
+                    <span className="mode-radio" aria-hidden="true" />
+                    <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0">
+                      <span className="block text-base font-semibold text-text-main">{title}</span>
+                      <span className="mt-1 block text-[0.9375rem] leading-relaxed text-text-dim">{description}</span>
                     </span>
                   </button>
                 )
               })}
             </div>
-            <p className="mt-3 text-xs text-text-muted">
-              What&apos;s the difference? Manual review is the only mode that always waits for a confirmation.
+            <p className="mt-4 text-sm leading-relaxed text-text-muted">
+              Manual review is the only mode that always waits for a confirmation.
               The two automatic modes are checked by the same server-side rules, so switching between them changes
               how you label the intent, not which replies are allowed to post. Neither automatic mode waives any check.
             </p>
             {modeSaving ? <p role="status" className="mt-3 text-sm text-text-muted">Saving publishing mode…</p> : null}
-            {modeSaved && !modeSaving && activeMode ? <p role="status" className="mt-3 text-sm text-success">Publishing mode saved.</p> : null}
+            {modeSaved && !modeSaving && activeMode ? <p role="status" className="mt-3 flex items-center gap-2 text-sm text-brand"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Publishing mode saved.</p> : null}
             {!session?.channel?.comments_scope_available && channelId ? (
-              <p className="mt-3 text-sm text-warning">
+              <p className="alert alert-warning mt-3 block">
                 Comment access and reply posting require youtube.force-ssl. Your channel connection will be preserved when you update permissions.{' '}
                 <button
                   type="button"
                   onClick={() => connectYouTube(true)}
-                  className="underline font-medium hover:text-warning/80"
+                  className="font-semibold underline underline-offset-2"
                 >
                   Update YouTube permissions
                 </button>
               </p>
             ) : null}
           </section>
+        </div>
+
+        <div className="settings-col">
+          {/* Automatic operation */}
+          <section className="card card-pad settings-order-2" aria-labelledby="settings-automation">
+            <h2 id="settings-automation" className="card-title mb-3">Automatic operation</h2>
+            {/* Loaded on demand: the controls also live on the Automation page. */}
+            <button type="button" aria-expanded={showAutomation} onClick={() => setShowAutomation(value => !value)}
+              className="link inline-flex items-center gap-2 text-left text-[0.9375rem]">
+              <Bot className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {showAutomation ? 'Hide automation controls' : 'Turn automatic comment discovery on, off or pause it'}
+              <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${showAutomation ? 'rotate-90' : ''}`} aria-hidden="true" />
+            </button>
+            {showAutomation ? <div className="mt-4 border-t border-[var(--line)] pt-4">
+              <AutomationControls csrf={session?.csrf_token ?? ''} connected={Boolean(channelId)} />
+            </div> : null}
+          </section>
+
+          {/* Reply Preferences */}
+          <section className="card card-pad settings-order-4" aria-labelledby="settings-preferences">
+            <h2 id="settings-preferences" className="card-title mb-4">Reply preferences</h2>
+            {sessionLoading ? <p role="status" className="mb-4 text-sm text-text-muted">Checking channel connection…</p> : null}
+            {!sessionLoading && !channelId ? (
+              <p className="well mb-4 p-3 text-sm text-text-muted">
+                Connect a YouTube channel to manage its reply preferences.
+              </p>
+            ) : null}
+            {channelId && loading ? <p role="status" className="mb-4 text-sm text-text-muted">Loading saved preferences…</p> : null}
+            {channelId && error ? (
+              <div role="alert" className="alert alert-error mb-4 flex-col gap-2">
+                <p>{error}</p>
+                {saveError ? (
+                  <div className="flex flex-wrap gap-3">
+                    <button onClick={() => void save()} disabled={saving} className="underline disabled:opacity-50">Retry save</button>
+                    <button onClick={retryLoading} disabled={saving} className="underline disabled:opacity-50">Reload saved preferences</button>
+                  </div>
+                ) : (
+                    <button onClick={retryLoading} className="underline">Retry loading</button>
+                )}
+              </div>
+            ) : null}
+
+            <fieldset disabled={!channelId || loading || !saved || saving} className="space-y-5 disabled:opacity-60">
+              {([
+                ['Tone', 'tone', ['Professional', 'Friendly', 'Casual']],
+                ['Reply length', 'reply_length', ['Short', 'Medium', 'Detailed']],
+                ['Language', 'language', ['English', 'Hindi', 'Hinglish']],
+              ] as const).map(([label, key, options]) => (
+                <div key={key}>
+                  <label className="field-label" htmlFor={`pref-${key}`}>{label}</label>
+                  <div className="relative">
+                    <select id={`pref-${key}`} aria-label={label} value={form[key]}
+                      onChange={event => setForm(current => ({ ...current, [key]: event.target.value }))}
+                      className="select">
+                      {options.map(option => <option key={option}>{option}</option>)}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
+                  </div>
+                </div>
+              ))}
+
+              <div>
+                <label htmlFor="channel-instructions" className="field-label">Channel instructions</label>
+                <textarea
+                  id="channel-instructions"
+                  rows={4}
+                  maxLength={2000}
+                  value={form.channel_instructions}
+                  onChange={event => setForm(current => ({ ...current, channel_instructions: event.target.value }))}
+                  className="textarea"
+                  placeholder="Optional guidance for the style of replies."
+                />
+                <p className="mt-2 text-sm text-text-muted tabular-nums">{form.channel_instructions.length}/2000 characters</p>
+              </div>
+            </fieldset>
+            {dirty ? <p className="mt-3 text-sm text-warning">Unsaved changes</p> : null}
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+              {channelId && saved && !dirty && !error ? <p role="status" className="mr-auto flex items-center gap-2 text-[0.9375rem] text-brand"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Preferences saved</p> : null}
+              {channelId && saving ? <p role="status" className="mr-auto text-sm text-text-muted">Saving preferences…</p> : null}
+              {dirty ? (
+                <button onClick={discardChanges} disabled={saving} className="btn btn-lg">
+                  Discard changes
+                </button>
+              ) : null}
+              <button onClick={() => void save()} disabled={!channelId || loading || !saved || !dirty || saving} className="btn btn-primary btn-lg">
+                Save preferences
+              </button>
+            </div>
+          </section>
 
           {/* AI Review */}
-          <section className="rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm p-6">
-            <h2 className="text-lg font-semibold mb-4">AI review</h2>
+          <section className="card card-pad settings-order-6" aria-labelledby="settings-review">
+            <h2 id="settings-review" className="card-title mb-4">AI review</h2>
             <div className="flex items-start gap-4">
-              <Sparkles className="w-8 h-8 text-brand-light flex-shrink-0" />
-              <div>
-                <div className="font-semibold text-text-main mb-1">A second model checks generated replies.</div>
-                <div className="text-sm text-text-muted leading-relaxed">
+              <span className="icon-tile icon-tile-green h-12 w-12" aria-hidden="true"><Sparkles /></span>
+              <div className="min-w-0">
+                <div className="mb-1 text-base font-semibold text-text-main">A second model checks generated replies.</div>
+                <div className="text-[0.9375rem] leading-relaxed text-text-dim">
                   The secondary model independently classifies the comment and checks reply relevance, unsupported claims, and inappropriate content. Automatic modes also require at least 80% review confidence and no findings.
                 </div>
               </div>
             </div>
-          </section>
-
-          {/* Usage this month */}
-          <section className="rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm p-6">
-            <h2 className="text-lg font-semibold mb-4">Usage this month</h2>
-            <div className="flex items-center justify-center p-6 border border-dark-600 border-dashed rounded-xl bg-dark-900/50">
-              <div className="text-sm text-text-muted text-center max-w-sm">
-                Aggregate usage history is not supported by the current backend API. (Values omitted).
-              </div>
+            <div className="mt-5 border-t border-[var(--line)] pt-4">
+              <h3 className="mb-3 text-base font-semibold text-text-main">Always sent to you instead of auto-published</h3>
+              <ul className="grid grid-cols-1 gap-x-6 gap-y-3 text-[0.9375rem] text-text-dim sm:grid-cols-2 lg:grid-cols-1 lg:gap-y-4">
+                {[
+                  'Comments that try to instruct the AI',
+                  'Hidden or direction-changing characters',
+                  'Questions only you can answer',
+                  'Possible sarcasm',
+                  'Hacked accounts, refunds, legal or safety issues',
+                  'Models that disagree or are unsure',
+                  'Replies with links, contacts, promises or money',
+                  'Spam, harassment and off-topic comments (skipped)',
+                ].map(rule => <li key={rule} className="flex items-start gap-2">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden="true" />
+                  <span>{rule}</span>
+                </li>)}
+              </ul>
             </div>
-            
-            <div className="flex items-center justify-end gap-3 mt-6">
-              <button disabled className="px-5 py-2.5 rounded-lg border border-dark-600 bg-transparent text-sm font-medium opacity-50 cursor-not-allowed">
-                Cancel
-              </button>
-              <button disabled className="px-5 py-2.5 rounded-lg bg-brand hover:bg-brand-dark text-white text-sm font-semibold transition-colors opacity-50 cursor-not-allowed">
-                Save changes
-              </button>
-            </div>
           </section>
-
         </div>
       </div>
     </div>

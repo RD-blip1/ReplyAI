@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { formatDateTime } from '../lib/format'
+import { ChevronRight } from 'lucide-react'
 import { apiRequest, messageOf } from '../lib/api'
 import type { AutomationSettings } from '../lib/types'
 
@@ -87,42 +89,43 @@ export default function AutomationControls({ csrf, connected }: { csrf: string; 
   const state = !settings.enabled ? 'Off' : settings.paused ? 'Paused' : 'Running'
   return (
     <div className="space-y-4" aria-label="Automatic operation">
-      <p role="status" className="text-sm text-text-muted">
-        Status: <span className="font-semibold text-text-main">{state}</span>
-        {settings.last_poll_finished_at ? ` · last checked ${new Date(settings.last_poll_finished_at).toLocaleString()}` : ''}
+      <p role="status" className="flex flex-wrap items-center gap-x-2 text-[0.9375rem] text-text-muted">
+        Status: <span className="inline-flex items-center gap-2 font-semibold text-text-main">
+          <span className={`h-2 w-2 rounded-full ${state === 'Running' ? 'bg-brand' : state === 'Paused' ? 'bg-warning' : 'bg-text-muted'}`} aria-hidden="true" />{state}</span>
+        {settings.last_poll_finished_at ? ` · last checked ${formatDateTime(settings.last_poll_finished_at)}` : ''}
       </p>
       <label className="block text-sm">
-        <span className="block text-text-muted mb-1">Also process comments from the last (hours, 0–72)</span>
+        <span className="block text-text-dim mb-2">Also process comments from the last (hours, 0–72)</span>
         <input type="number" min={0} max={72} value={lookback} disabled={busy || settings.enabled}
           onChange={event => setLookback(Math.max(0, Math.min(72, Number(event.target.value) || 0)))}
-          className="w-24 rounded-lg border border-dark-600 bg-dark-900 px-2 py-1" aria-label="Lookback hours" />
+          className="input w-28" aria-label="Lookback hours" />
         {lookback > 0 && !settings.enabled ? <span className="ml-2 text-warning text-xs">Older comments will be processed too.</span> : null}
       </label>
       <div className="flex flex-wrap gap-2">
         {!settings.enabled
           ? <button type="button" disabled={busy} onClick={() => void update({ enabled: true, paused: false })}
-              className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold disabled:opacity-50">Turn on automation</button>
+              className="btn btn-primary">Turn on automation</button>
           : <>
               <button type="button" disabled={busy} onClick={() => void update({ enabled: true, paused: !settings.paused })}
-                className="px-4 py-2 rounded-lg border border-dark-600 text-sm font-semibold disabled:opacity-50">
+                className="btn">
                 {settings.paused ? 'Resume' : 'Pause'}</button>
               <button type="button" disabled={busy} onClick={() => void update({ enabled: false, paused: false })}
-                className="px-4 py-2 rounded-lg border border-danger/40 text-danger text-sm font-semibold disabled:opacity-50">Turn off</button>
+                className="btn btn-danger">Turn off</button>
             </>}
       </div>
-      <details className="text-sm">
-        <summary className="cursor-pointer text-text-muted">Allowed links in replies</summary>
+      <details className="disclosure text-sm">
+        <summary className="text-text-dim"><ChevronRight className="disclosure-chevron" aria-hidden="true" />Allowed links in replies</summary>
         <p className="mt-2 text-xs text-text-muted">Automatic replies containing any other link are held for you. One per line.</p>
         <label className="block mt-2">Domains
           <textarea aria-label="Allowed domains" value={domains} onChange={e => setDomains(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-dark-600 bg-dark-900 p-2" rows={2} /></label>
+            className="textarea mt-1" rows={2} /></label>
         <label className="block mt-2">Link prefixes
           <textarea aria-label="Allowed link prefixes" value={prefixes} onChange={e => setPrefixes(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-dark-600 bg-dark-900 p-2" rows={2} /></label>
+            className="textarea mt-1" rows={2} /></label>
         <button type="button" disabled={busy} onClick={() => void saveAllowlist()}
-          className="mt-2 px-3 py-1.5 rounded-lg border border-dark-600 text-sm disabled:opacity-50">Save allowed links</button>
+          className="btn btn-sm mt-3">Save allowed links</button>
       </details>
-      {saved ? <p role="status" className="text-sm text-success">{saved}</p> : null}
+      {saved ? <p role="status" className="text-sm text-brand">{saved}</p> : null}
       {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
     </div>
   )

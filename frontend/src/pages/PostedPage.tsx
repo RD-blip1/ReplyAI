@@ -1,5 +1,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { RefreshCw, Search, CheckCircle2, XCircle, Clock, History } from 'lucide-react';
+import { formatDateTime, formatTime } from '../lib/format';
+import { RefreshCw, Search, CheckCircle2, XCircle, Clock, History, ExternalLink } from 'lucide-react';
+import { Kpi, PageHeader } from '../components/ui';
 import { apiRequest } from '../lib/api';
 import type { PublicationPage } from '../lib/types';
 import { useAppData } from '../hooks/useAppData';
@@ -116,31 +118,32 @@ export default function PostedPage({ appData }: { appData: ReturnType<typeof use
     return { posted: p.toString(), failed: f.toString(), unconfirmed: u.toString() };
   }, [data]);
 
+  const simulated = Boolean(session?.simulation);
+  const cols = 'grid grid-cols-[minmax(0,1.35fr)_minmax(0,1.25fr)_10rem_11rem] gap-6';
+
   return (
-    <div className="flex flex-col h-full gap-6 animate-in fade-in duration-300">
-      <header className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight mb-1">Posted replies</h1>
-          <p className="text-text-muted text-sm">Track your publishing history.</p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <button 
+    <div className="page">
+      <PageHeader
+        title="Posted replies"
+        subtitle="Track your publishing history."
+        actions={
+          <button
             disabled={loading || !session?.connected}
             onClick={fetchPublications}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border border-dark-600 bg-dark-800/80 hover:bg-dark-700 text-sm font-medium transition-colors disabled:opacity-50"
+            className="btn btn-primary btn-lg"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={loading ? 'animate-spin' : ''} aria-hidden="true" />
             Refresh status
           </button>
-          {lastSync && <span className="text-xs text-text-muted">Loaded just now</span>}
-        </div>
-      </header>
+        }
+        meta={lastSync ? `Loaded ${formatTime(lastSync)}` : null}
+      />
 
       {error && (
-        <div className="bg-danger-bg border border-danger/30 rounded-xl p-4 text-danger flex gap-3 items-start">
-          <XCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+        <div className="alert alert-error">
+          <XCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
           <div>
-            <h3 className="font-semibold mb-1">Error Loading Data</h3>
+            <h3 className="mb-1 font-semibold">Publication history could not be loaded</h3>
             <p className="text-sm opacity-90">{error}</p>
             {session?.connected && (
               <button type="button" className="mt-3 underline" disabled={loading} onClick={() => void fetchPublications()}>
@@ -151,48 +154,40 @@ export default function PostedPage({ appData }: { appData: ReturnType<typeof use
         </div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { label: 'Posted', count: stats.posted, icon: CheckCircle2, color: 'text-success', bg: 'bg-success-bg' },
-          { label: 'Failed', count: stats.failed, icon: XCircle, color: 'text-danger', bg: 'bg-danger-bg' },
-          { label: 'Unconfirmed', count: stats.unconfirmed, icon: Clock, color: 'text-warning', bg: 'bg-warning-bg' },
-        ].map(card => (
-          <div key={card.label} className="flex items-center gap-4 p-5 rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm">
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${card.bg} ${card.color}`}>
-              <card.icon className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{card.count}</div>
-              <div className="text-sm text-text-muted">{card.label}</div>
-            </div>
-          </div>
-        ))}
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Kpi icon={CheckCircle2} tone="green" value={stats.posted} label="Posted" />
+        <Kpi icon={XCircle} tone="red" value={stats.failed} label="Failed" />
+        <Kpi icon={Clock} tone="amber" value={stats.unconfirmed} label="Unconfirmed" />
       </div>
 
-      {/* Filter Area */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-between items-center mt-2">
-        <div className="flex gap-4 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-64">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input 
-              type="text" 
-              placeholder="Search replies..." 
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm focus:outline-none focus:border-brand"
-            />
-          </div>
+      {simulated ? (
+        <p className="alert alert-warning" role="note">
+          Simulation mode: these replies were posted to the simulated channel only. None of them is on YouTube.
+        </p>
+      ) : null}
+
+      {/* Filters */}
+      <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
+          <input
+            type="text"
+            placeholder="Search replies..."
+            aria-label="Search replies"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="input pl-10"
+          />
         </div>
-        
-        <div className="flex bg-dark-900 rounded-lg p-1 border border-dark-600 w-full sm:w-auto overflow-x-auto">
+
+        <div className="seg self-start sm:self-auto" role="group" aria-label="Filter by status">
           {(['All', 'Posted', 'Failed', 'Unconfirmed'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium whitespace-nowrap ${
-                activeTab === tab ? 'bg-brand/20 text-brand-light' : 'text-text-muted hover:text-text-main'
-              }`}
+              aria-pressed={activeTab === tab}
+              className={`seg-item ${activeTab === tab ? 'is-active' : ''}`}
             >
               {tab}
             </button>
@@ -200,32 +195,33 @@ export default function PostedPage({ appData }: { appData: ReturnType<typeof use
         </div>
       </div>
 
-      {/* Table Area */}
-      <div className="flex-1 rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm overflow-hidden flex flex-col min-h-[300px]">
-        <div className="grid grid-cols-[2fr_2fr_1fr_1.5fr] gap-4 p-4 border-b border-dark-600 bg-dark-900/50 text-sm font-medium text-text-muted">
-          <div>Comment & context</div>
+      {/* Table */}
+      <div className="card overflow-hidden">
+        <div className="table-scroll"><div className="min-w-[56rem]">
+        <div className={`data-head ${cols} px-5 py-4`}>
+          <div>Comment &amp; context</div>
           <div>Your reply</div>
           <div>Status</div>
           <div>Last updated</div>
         </div>
-        
-        <div className="flex-1 overflow-y-auto">
+
+        <div>
           {loading ? (
-            <div className="flex h-full items-center justify-center text-text-muted p-8 text-center">Loading publication history…</div>
+            <div className="empty-state" role="status">Loading publication history…</div>
           ) : !session?.connected ? (
-            <div className="flex h-full items-center justify-center text-text-muted p-8 text-center">
+            <div className="empty-state">
               {sessionError || 'Connect a YouTube channel to view publication history.'}
             </div>
           ) : error && !data ? (
-            <div className="flex h-full items-center justify-center text-text-muted p-8 text-center">Publication history could not be loaded. Use Retry loading history above.</div>
+            <div className="empty-state">Publication history could not be loaded. Use Retry loading history above.</div>
           ) : data?.items.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-text-muted p-8 text-center flex-col gap-2">
-              <History className="w-10 h-10 text-dark-500" />
+            <div className="empty-state">
+              <History aria-hidden="true" />
               <p>No publication history yet.</p>
             </div>
           ) : filteredItems.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-text-muted p-8 text-center flex-col gap-2">
-              <History className="w-10 h-10 text-dark-500" />
+            <div className="empty-state">
+              <History aria-hidden="true" />
               <p>No publication history matches your filters.</p>
             </div>
           ) : (
@@ -236,55 +232,57 @@ export default function PostedPage({ appData }: { appData: ReturnType<typeof use
               const videoTitle = comment?.video_title ?? video?.title ?? null;
               const author = comment?.author_name ?? null;
               return (
-              <div key={item.id} className="grid grid-cols-[2fr_2fr_1fr_1.5fr] gap-4 p-4 border-b border-dark-600/50 hover:bg-dark-700/30 transition-colors text-sm">
-                <div>
+              <div key={item.id} className={`data-row ${cols} px-5 py-5 text-[0.9375rem]`}>
+                <div className="min-w-0">
                   {videoTitle ? (
-                    <div className="font-medium text-text-main mb-1 truncate" title={videoTitle}>{videoTitle}</div>
+                    <div className="mb-1 truncate text-base font-bold text-text-main" title={videoTitle}>{videoTitle}</div>
                   ) : (
-                    <div className="font-mono text-xs text-text-muted mb-1">Video: {item.video_id}</div>
+                    <div className="mono-meta mb-1">Video: {item.video_id}</div>
                   )}
                   {commentText ? (
-                    <div className="text-text-dim line-clamp-2" title={commentText}>{commentText}</div>
+                    <div className="line-clamp-2 text-text-dim [overflow-wrap:anywhere]" title={commentText}>{commentText}</div>
                   ) : (
-                    <div className="text-text-dim italic">Comment text unavailable</div>
+                    <div className="text-text-muted">Comment text unavailable</div>
                   )}
-                  {author && <div className="text-xs text-text-muted mt-1">Comment by {author}</div>}
-                  <div className="text-[11px] text-text-muted/70 mt-1 font-mono">video {item.video_id} · comment {item.parent_comment_id}</div>
+                  {author && <div className="mt-1 text-sm text-text-muted">Comment by {author}</div>}
+                  <div className="mono-meta mt-1 truncate" title={`video ${item.video_id} · comment ${item.parent_comment_id}`}>video {item.video_id} · comment {item.parent_comment_id}</div>
                 </div>
-                <div>
-                  <div className="text-text-main line-clamp-3">{item.text}</div>
-                  {item.draft_revision && <div className="text-xs text-text-muted mt-1">Rev {item.draft_revision}</div>}
+                <div className="min-w-0">
+                  <div className="line-clamp-4 text-text-main [overflow-wrap:anywhere]">{item.text}</div>
+                  {item.draft_revision && <div className="mt-1 text-sm text-text-muted">Rev {item.draft_revision}</div>}
                 </div>
-                <div>
+                <div className="min-w-0">
                   {item.status === 'posted' && (
-                    <div className="flex flex-col gap-1 items-start">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-success/20 text-success border border-success/30">Posted</span>
-                      {item.reply_comment_id && (
-                        <a href={`https://youtube.com/comments?lc=${item.reply_comment_id}`} target="_blank" rel="noreferrer" className="text-xs text-brand hover:underline">View on YouTube</a>
+                    <div className="flex flex-col items-start gap-2">
+                      <span className="badge badge-green">{simulated ? 'Posted (simulated)' : 'Posted'}</span>
+                      {item.reply_comment_id && !simulated && (
+                        <a href={`https://youtube.com/comments?lc=${item.reply_comment_id}`} target="_blank" rel="noreferrer" className="link inline-flex items-center gap-2 text-sm">View on YouTube<ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /></a>
                       )}
+                      {simulated && <span className="text-sm text-text-muted">Not on YouTube</span>}
                     </div>
                   )}
                   {item.status === 'failed' && (
-                    <div className="flex flex-col gap-1 items-start">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-danger/20 text-danger border border-danger/30">Failed</span>
-                      {item.failure?.message && <span className="text-xs text-danger/80" title={item.failure.message}>Hover for reason</span>}
+                    <div className="flex flex-col items-start gap-2">
+                      <span className="badge badge-red">Failed</span>
+                      {item.failure?.message && <span className="text-sm text-danger [overflow-wrap:anywhere]" title={item.failure.message}>{item.failure.message}</span>}
                     </div>
                   )}
                   {(item.status === 'unknown' || item.status === 'sending') && (
-                    <div className="flex flex-col gap-1 items-start">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-warning/20 text-warning border border-warning/30">Unconfirmed</span>
-                      <span className="text-xs text-text-muted">Check YouTube</span>
+                    <div className="flex flex-col items-start gap-2">
+                      <span className="badge badge-amber">Unconfirmed</span>
+                      <span className="text-sm text-text-muted">{simulated ? 'Check the simulated channel' : 'Check YouTube'}</span>
                     </div>
                   )}
                 </div>
-                <div className="text-text-muted">
-                  {item.resolved_at ? new Date(item.resolved_at).toLocaleString() : (item.created_at ? new Date(item.created_at).toLocaleString() : 'Unknown')}
+                <div className="text-text-dim tabular-nums">
+                  {formatDateTime(item.resolved_at) ?? formatDateTime(item.created_at) ?? 'Unknown'}
                 </div>
               </div>
               );
             })
           )}
         </div>
+        </div></div>
       </div>
     </div>
   );

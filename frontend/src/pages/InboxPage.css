@@ -1,0 +1,119 @@
+.inbox-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1.25rem;
+}
+
+@media (min-width: 1024px) {
+  .inbox-grid {
+    grid-template-columns: minmax(20rem, 1fr) minmax(26rem, 1fr);
+  }
+}
+
+/* The list card scrolls internally so a long inbox never pushes the workspace away;
+   its cap follows the viewport and the page itself still scrolls naturally. */
+.inbox-list-card {
+  display: flex;
+  max-height: min(64rem, calc(100dvh - 2rem));
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (min-width: 1024px) {
+  /* Same pairing as Videos: the list card matches the workspace's height and scrolls inside. */
+  .inbox-grid {
+    align-items: stretch;
+  }
+
+  .inbox-list-card {
+    max-height: none;
+    min-height: 36rem;
+  }
+
+  .inbox-list-card .inbox-list {
+    height: 0;
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 1023px) {
+  .inbox-list-card {
+    max-height: 72dvh;
+  }
+}
+
+.inbox-toolbar {
+  flex-shrink: 0;
+  padding: clamp(1rem, 0.7rem + 0.8vw, 1.5rem) clamp(1rem, 0.7rem + 0.8vw, 1.5rem) 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.inbox-video-filter {
+  max-width: 100%;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+@media (min-width: 640px) {
+  .inbox-video-filter {
+    max-width: 16rem;
+  }
+}
+
+.inbox-video-filter svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.inbox-list {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+  padding: 1rem clamp(1rem, 0.7rem + 0.8vw, 1.5rem) 1.5rem;
+}
+
+.inbox-comment {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(3, 11, 8, 0.6);
+  text-align: left;
+  transition: border-color 160ms var(--ease), background-color 160ms var(--ease);
+}
+
+.inbox-comment:hover {
+  border-color: var(--line-strong);
+}
+
+.inbox-comment.is-selected {
+  border-color: rgba(46, 230, 166, 0.45);
+  background: rgba(46, 230, 166, 0.05);
+  box-shadow: 0 0 24px -12px rgba(46, 230, 166, 0.5);
+}
+
+.inbox-video-thumb {
+  display: grid;
+  width: 6rem;
+  height: 3.5rem;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: #bff7e0;
+  background:
+    radial-gradient(ellipse 60% 70% at 50% 50%, rgba(46, 230, 166, 0.25), transparent 70%),
+    #0b1d16;
+}
+
+.inbox-video-thumb svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}

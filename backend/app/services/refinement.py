@@ -51,6 +51,10 @@ SAFE_FAILURES: dict[str, tuple[int, str]] = {
     "incomplete_response": (502, "The model response was cut short. Retry the instruction."),
     "transient_error": (502, "The provider was temporarily unavailable. Retry the instruction."),
     "response_too_large": (502, "The model response was too large to accept."),
+    # Only the dev simulation raises this; a real provider never does.
+    "simulation_unsupported_instruction": (
+        422, ("Simulation mode: the scripted model only supports \"make it shorter\", \"more "
+              "professional\", \"friendlier\" and \"simpler\". A real model follows any instruction.")),
 }
 
 
