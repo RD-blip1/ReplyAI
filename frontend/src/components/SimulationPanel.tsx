@@ -13,7 +13,9 @@ type SimState = {
 }
 
 const SCENARIOS = ['safe', 'disagree', 'spam', 'harassment', 'off_topic', 'generic', 'url', 'pii', 'promise',
-  'sarcasm', 'creator_only', 'low_quality', 'rate_limit', 'auth_fail', 'hindi', 'hinglish', 'hidden_chars']
+  'sarcasm', 'creator_only', 'low_quality', 'rate_limit', 'auth_fail', 'hindi', 'hinglish', 'hidden_chars',
+  'injection', 'injection_obey', 'fake_authority', 'sensitive', 'sarcasm_subtle', 'praise_enthusiastic',
+  'hinglish_sarcasm', 'multi_intent', 'fixed_reply']
 
 // Dev-only controls for the simulated YouTube channel (backend app/simulation.py).
 export default function SimulationPanel({ csrf }: { csrf: string }) {
@@ -66,9 +68,11 @@ export default function SimulationPanel({ csrf }: { csrf: string }) {
     </div>
     {notice && <p role="status" className="text-xs">{notice}</p>}
     <details>
-      <summary className="cursor-pointer text-xs">Simulated comments ({comments.length}) · simulated replies posted by ReplyAI: {state?.inserted.length ?? 0}</summary>
+      <summary className="cursor-pointer text-xs">{state
+        ? `Simulated comments (${comments.length}) · simulated replies posted by ReplyAI: ${state.inserted.length}`
+        : 'Loading simulated comments…'}</summary>
       <ul className="mt-2 max-h-72 overflow-auto divide-y divide-dark-600 text-xs">
-        {comments.map(c => <li key={c.id} className="py-1.5 flex flex-wrap items-center gap-2">
+        {comments.map(c => <li key={c.id} className="py-2 flex flex-wrap items-center gap-2">
           <code className="text-[10px]">{c.scenario}</code>
           <span className="flex-1 min-w-[12rem] truncate" title={c.text}>{c.text}</span>
           <span className="text-text-muted">{c.replies.length} repl.</span>

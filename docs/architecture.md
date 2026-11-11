@@ -14,6 +14,7 @@ publication, and the database invariants that keep publication safe.
 - [Guardrails](#guardrails)
 - [Publication safety](#publication-safety)
 - [Rate limits and budgets](#rate-limits-and-budgets)
+- [Error handling and recovery](#error-handling-and-recovery)
 - [Data model](#data-model)
 - [Simulation mode](#simulation-mode)
 
@@ -79,13 +80,16 @@ The most important services:
 | `services/automation_policy.py` | `decide()`: the one function that classifies every automatic decision |
 | `services/automation_decisions.py` | Durable decision history for the dashboard and review queue |
 | `services/input_analysis.py` | Deterministic input signals (hidden characters, confusable URLs, injection phrases) |
-| `services/reply_policy.py` | Deterministic reply-content rules R1–R11 |
+| `services/reply_policy.py` | Deterministic reply-content rules R1–R12 |
+| `services/reply_guard.py` | Replaces a draft with a holding reply when the policy already holds it (creator-only question, sarcasm read literally, dictated reply) |
 | `services/revalidation.py` | Re-reads the comment before publication (edited, deleted, already answered) |
 | `services/publishing.py` | Publication eligibility, guard bookkeeping |
 | `services/publication_reconcile.py` | Read-only check of unknown publication outcomes |
 | `services/routing.py` | Optional tiered routing that skips model calls that cannot change the outcome |
 | `services/llm_budget.py` | Per-HTTP-attempt request budgets for model calls |
 | `services/youtube_api.py` | YouTube Data API calls with typed error mapping |
+| `services/video_context.py` | Video scope card, cached in Redis |
+| `routers/usage.py` | Rolling 24-hour token/request usage per role and the replies-remaining estimate |
 
 Routers stay thin: they authenticate the session, verify that the channel belongs to the
 caller, check the CSRF header on mutations, and delegate to services.
@@ -100,6 +104,10 @@ served as static files.
 | --- | --- |
 | `src/App.tsx` | Route switch, OAuth result notices, unsaved-changes guard |
 | `src/components/AppShell.tsx` | Navigation, connection status, simulation banner |
+| `src/components/TokenUsageGauge.tsx` | LLM usage gauge and replies-remaining estimate (original design: Hrishik1033, PR #3) |
+| `src/components/SafeText.tsx` | Renders untrusted comment text with hidden and bidi characters made visible |
+| `src/components/AutomationControls.tsx`, `SimulationPanel.tsx`, `ui.tsx` | Automation switches, simulation controls, shared UI primitives |
+| `src/lib/decisions.ts`, `jobText.ts`, `format.ts` | Plain-language decision and job wording, formatting helpers |
 | `src/hooks/useAppData.ts` | Session, channel and video state shared by pages |
 | `src/lib/api.ts` | `fetch` wrapper: credentials, CSRF header, typed `ApiError` |
 | `src/lib/types.ts` | TypeScript mirrors of the API payloads |
@@ -142,8 +150,8 @@ runs the same stage sequence from `services/stage_pipeline.py`:
 flowchart TD
     C["Comment + video context"] --> T["Triage (secondary)<br/>category, confidence, language"]
     T -- "off-topic, spam, abuse,<br/>unsupported language" --> S["Stop: skip or review"]
-    T -- "on-topic" --> G["Generation (primary)<br/>reply + classification"]
-    T -- "on-topic" --> K["Classification (secondary)<br/>sentiment, intent, sarcasm"]
+    T -- "on-topic or generic" --> G["Generation (primary)<br/>reply + classification"]
+    T -- "on-topic or generic" --> K["Classification (secondary)<br/>sentiment, intent, sarcasm"]
     G --> P["Persist draft (revision-guarded)"]
     K --> P
     P --> Q["Quality review (secondary)<br/>relevance, unsupported claims,<br/>inappropriate content, confidence"]
@@ -173,17 +181,26 @@ never mistaken for a content judgement that sends a comment to human review.
 
 ```mermaid
 flowchart LR
-    START --> load_context --> comment_triage
-    comment_triage -- "on-topic" --> primary_generation & secondary_classification
+    START --> load_context
+    load_context -- "new generation" --> comment_triage
+    load_context -- "review an existing draft" --> review_classification
+    comment_triage -- "on-topic or generic" --> primary_generation & secondary_classification
     comment_triage -- "otherwise" --> persist_draft
-    primary_generation & secondary_classification --> parallel_quality_gate --> quality_review
-    quality_review --> persist_draft --> evaluate_publishing_policy
+    primary_generation & secondary_classification --> parallel_quality_gate
+    parallel_quality_gate -- "quality review needed" --> quality_review
+    parallel_quality_gate -- "otherwise" --> persist_draft
+    review_classification -- "has text" --> quality_review
+    quality_review --> persist_draft
+    persist_draft -- "generation" --> evaluate_publishing_policy
+    persist_draft -- "review only" --> END
     evaluate_publishing_policy -- "automatic mode" --> protected_publish_handoff --> END
     evaluate_publishing_policy -- "manual review" --> END
 ```
 
-Both engines use identical provider inputs (one contract in `stage_inputs.py`) and hand
-publication to the same guarded function.
+Generation and the independent classification run in parallel. Both engines use
+identical provider inputs (one contract in `stage_inputs.py`) and hand publication to
+the same guarded function, which runs the central decision policy and publishes only an
+`AUTO_PUBLISH` verdict.
 
 ## Automatic comment processing
 
@@ -293,13 +310,17 @@ Checks run in a fixed order and the first match wins:
 5. **Triage** — spam, abuse, off-topic or unsupported language → `SKIP`; "requires human
    attention", uncertain or generic engagement → `HUMAN_REVIEW`.
 6. **Content signals** — language mismatch, a question only the creator can answer,
-   high-risk segments of a multi-intent comment, or possible sarcasm → `HUMAN_REVIEW`;
-   hidden-character concealment (when `INPUT_SIGNALS_MODE=route_high_risk`) →
-   `POLICY_BLOCK`.
+   or high-risk segments of a multi-intent comment → `HUMAN_REVIEW`; hidden-character
+   concealment (`INPUT_SIGNALS_MODE=route_high_risk`, the default) → `POLICY_BLOCK`;
+   agent-directed instructions (`injection_suspected`), sensitive topics such as hacked
+   accounts, money, legal threats or self-harm (`sensitive_topic`), and possible
+   sarcasm from a classifier or deterministic cues (`sarcasm_possible`) →
+   `HUMAN_REVIEW`.
 7. **Verification** — incomplete stages, uncertain labels, a quality check that did not
    pass, review confidence below 0.8, any review finding, or model disagreement →
    `HUMAN_REVIEW` (inappropriate content → `POLICY_BLOCK`).
-8. **Reply policy** — any blocking rule R1–R11 → `POLICY_BLOCK`.
+8. **Reply policy** — any rule R1–R12 at `review` level or above → `POLICY_BLOCK`; a
+   dictated reply that the reply guard replaced stays `POLICY_BLOCK` (`reply_policy:R12`).
 9. **Two-model invariant** — the generator and verifier must be different, recorded
    models and every stage must have run → otherwise `TECHNICAL_FAILURE`.
 10. **Mode and caps** — manual mode → `HUMAN_REVIEW`; hourly/daily cap reached → `RETRY`;
@@ -323,10 +344,15 @@ decision trace in the UI.
 
 **Input signals** (`services/input_analysis.py`) are deterministic detectors for
 concealment: Unicode tag characters, bidirectional controls, invisible characters inside
-words, confusable or punycode URL hosts, encoded payloads, and common injection phrases
-(English and Hindi/Hinglish). By default they are observe-only (`INPUT_SIGNALS_MODE=observe`);
-`route_high_risk` blocks automatic publication when a high-risk signal is present. The
-original text is never rewritten for storage.
+words, confusable or punycode URL hosts, encoded payloads, common injection phrases and
+dictation patterns (English and Hindi/Hinglish), sarcasm cues and sensitive topics. With
+the default `INPUT_SIGNALS_MODE=route_high_risk`, concealment blocks automatic
+publication (`observe` only records it). The original text is never rewritten for
+storage.
+
+**Routing switches** decide which signals send a comment to a person:
+`INJECTION_ROUTING=review`, `ANSWERABILITY_ROUTING=always` (creator-only questions),
+`SARCASM_ROUTING=model_and_cues` and `SENSITIVE_TOPIC_ROUTING=review` are the defaults.
 
 **Reply policy** (`services/reply_policy.py`) checks the saved reply text:
 
@@ -342,11 +368,19 @@ original text is never rewritten for storage.
 | R9 | Hidden characters in the reply | block |
 | R10 | Overlong reply | warn |
 | R11 | Evaluation canary string | block |
+| R12 | Text the comment dictated ("reply exactly: …") repeated in the reply | block |
 
 In manual mode violations are shown as warnings to the person approving the reply; in
 automatic modes any rule at `review` level or above prevents automatic publication.
 Allowed domains, contacts and handles are managed per channel under **Settings →
 Automatic operation**.
+
+**Reply guard** (`services/reply_guard.py`, `REPLY_GUARD=true`). When the policy will
+hold a draft anyway because the comment is a creator-only question, possibly sarcastic,
+or dictates a reply, the generated text is replaced by a holding reply in the creator's
+voice (English, Hindi or Hinglish), without another model call. The model's original
+text and the reason are kept in the technical details, so the person reviewing never
+starts from a misleading draft.
 
 **Prompt-injection posture.** The models have no tools and no ability to act; their output
 is validated against strict schemas, checked by the reply policy, and published only
@@ -396,6 +430,30 @@ upserts (`job_queue.try_acquire`):
 LLM budgets are charged per HTTP attempt (including provider-level retries) in their own
 short transaction, so the counter reflects requests actually sent. Provider token usage
 is recorded per draft in `reply_draft_usage` and shown on the draft's usage panel.
+
+`GET /api/usage/summary` aggregates that ledger over a rolling 24 hours per role and
+compares it with locally configured ceilings (`LLM_PRIMARY_TOKENS_PER_DAY`,
+`LLM_SECONDARY_TOKENS_PER_DAY`, `LLM_REQUESTS_PER_DAY`). After at least 10 completed
+replies it averages the most recent ones (up to 50) to estimate how many more replies
+fit, limited by the busier role. **Settings → LLM usage** shows it as a gauge. These
+are local estimates, not provider quota.
+
+## Error handling and recovery
+
+| Failure | Detected by | Outcome |
+| --- | --- | --- |
+| Provider rate limit, timeout, network error | Typed `stage_outcomes` | `RETRY` with backoff; job attempt counted |
+| Local LLM or YouTube budget exhausted | `llm_budget`, `rate_limit_counters` | `RETRY`; attempt refunded, progress kept |
+| Invalid model output (schema violation) | Strict Pydantic schemas | One retry, then `TECHNICAL_FAILURE` |
+| Provider authentication failure | Typed outcome (terminal) | `TECHNICAL_FAILURE` |
+| Missing or insufficient YouTube permission | Credential check | `TECHNICAL_FAILURE` / job `needs_reauth` |
+| Worker crash or stall | Expired lease | Recovery: `pending` again, or `published` / `unknown` if an attempt exists; capped by `JOB_MAX_RECOVERIES` |
+| Lost publication response | Attempt left open | `unknown`, never retried; human reconciliation |
+| Comment edited, deleted or answered meanwhile | Revalidation | `HUMAN_REVIEW` or `SKIP` |
+
+Errors returned to the browser are stable codes with a human message; provider and
+Google error bodies stay in server logs, which never include tokens, keys or OAuth
+codes.
 
 ## Data model
 

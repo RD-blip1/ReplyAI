@@ -35,3 +35,10 @@ Thumbs.db
 .vscode/
 *.orig
 *.bak
+
+# Private development material that must never enter the public repository.
+docs/research/
+backend/app/evaluation/
+*.sqlite
+*.sqlite3
+*.db

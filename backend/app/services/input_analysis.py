@@ -103,6 +103,9 @@ class InputAnalysis:
     contacts: list[dict] = field(default_factory=list)
     encoded_runs: list[dict] = field(default_factory=list)
     injection_phrases: list[str] = field(default_factory=list)
+    directives: list[dict] = field(default_factory=list)
+    sarcasm_cues: list[str] = field(default_factory=list)
+    sensitive_topics: list[str] = field(default_factory=list)
     spam_features: dict = field(default_factory=dict)
 
     @property
@@ -341,6 +344,98 @@ def _printable_run(kind, token, decoded) -> list[dict]:
 SPACED_RUN_RE = re.compile(r"\b(?:\w ){3,}\w\b")
 
 
+# Directives aimed at the agent rather than the creator: patterns over the folded views,
+# grouped by the attack they implement. Quoted text and code spans are excluded (a viewer
+# *discussing* "ignore previous instructions" is not instructing the bot).
+DIRECTIVE_PATTERNS = {
+    "instruction_override": re.compile(
+        r"\b(?:ignore|disregard|forget|override|bypass|skip)\s+(?:all\s+|any\s+|the\s+|your\s+|my\s+)?"
+        r"(?:previous|prior|above|earlier|system|safety|creator'?s?|channel)?\s*"
+        r"(?:instructions?|rules?|guidelines?|prompts?|polic(?:y|ies)|checks?|filters?)\b"
+        r"|\b(?:rules?|instructions?|niyam)\s+(?:ko\s+)?(?:ignore|bhool\w*|chhod\w*)\b"),
+    "fake_role_message": re.compile(
+        r"(?:^|\n|\]|\))\s*(?:\[|<|#+\s*)?(?:system|developer|assistant|admin|moderator|reviewer|"
+        r"verifier|quality\s*(?:check|review)?)\s*(?:message|note|prompt)?\s*(?:\]|>)?\s*:"),
+    "fake_authorization": re.compile(
+        r"\b(?:the\s+)?(?:creator|channel\s+owner|owner|admin|youtube)\s+(?:has\s+|have\s+)?"
+        r"(?:approved|authori[sz]ed|allowed|permitted|says?\s+(?:you|to))\b"
+        r"|\bapproved\s+by\s+(?:the\s+)?(?:creator|channel\s+owner|admin|youtube)\b"
+        r"|\b(?:admin|owner)\s+override\b|\bcreator\s+ne\s+(?:allow|approve)\b"),
+    "verifier_manipulation": re.compile(
+        r"\b(?:mark|rate|score|classify|label|tag|set)\s+(?:this|it|the\s+reply|quality|sentiment|"
+        r"intent|the\s+comment)\s+(?:as\s+)?(?:a\s+)?(?:pass(?:ed)?|approved|safe|positive|praise|"
+        r"on[\s_-]?topic|1(?:\.0)?|100)\b"
+        r"|\bquality\s*[:=]\s*pass\b|\bverification\s+(?:passed|complete)\b"),
+    "dictated_output": re.compile(
+        # "answer this:" / "reply with your setup" are ordinary requests; dictation names
+        # exact wording ("reply exactly:", "say this exact sentence", "post the following").
+        r"\b(?:reply|respond|answer|write|say|post|comment|type)\s+(?:only\s+|just\s+)?"
+        r"(?:exactly|verbatim|word\s+for\s+word|the\s+following|only\s+with|with\s+exactly|"
+        r"(?:with\s+)?this\s+(?:exact\s+)?(?:text|message|line|sentence|words?|phrase))\b"
+        r"|\b(?:your|the|this|ur|ye|yeh)\s+(?:reply|answer|response)\s+(?:must|should|has\s+to|needs\s+to)\s+"
+        r"(?:be|say|contain|include|read|start\s+with|end\s+with)\b"
+        r"|\brepeat\s+after\s+me\b|\bcopy\s+(?:this|the\s+following)\b"
+        r"|\b(?:ye|yeh|bas\s+ye|exact)\s+(?:reply|likho|likh\s+do)\b"),
+    "credential_request": re.compile(
+        r"\b(?:print|reveal|show|share|tell|leak|send|give)\s+(?:me\s+)?(?:your\s+|the\s+)?"
+        r"(?:api[\s_-]?keys?|secret\s+keys?|passwords?|tokens?|credentials?|system\s+prompt|"
+        r"instructions|env(?:ironment)?\s+variables?)\b"),
+}
+QUOTED_RE = re.compile(r"\"[^\"\n]{1,200}\"|“[^”\n]{1,200}”|'[^'\n]{3,200}'|‘[^’\n]{1,200}’")
+
+
+def _directive_views(text: str) -> tuple[str, ...]:
+    outside = QUOTED_RE.sub(" ", CODE_SPAN_RE.sub(" ", text))
+    folded = detection_view(outside)
+    despaced = SPACED_RUN_RE.sub(lambda m: m.group().replace(" ", ""), folded)
+    return (folded, skeleton(folded), despaced, skeleton(despaced))
+
+
+def directives(text: str) -> list[dict]:
+    """Agent-directed instructions found outside code spans and quotations."""
+    found = []
+    for view in _directive_views(text):
+        for kind, pattern in DIRECTIVE_PATTERNS.items():
+            match = pattern.search(view)
+            if match and kind not in {d["kind"] for d in found}:
+                found.append({"kind": kind, "match": match.group().strip()[:80]})
+    return found
+
+
+# Sarcasm cues need BOTH a marker of non-literal praise and a negative situation, so
+# enthusiastic praise ("INSANE video 🔥🔥") is never flagged on its own.
+SARCASM_MARKER_RE = re.compile(
+    r"[🙃🙄😒👏😑]|/s\b|\b(?:yeah|ya)\s+right\b|\boh\s+(?:great|wonderful|perfect|nice)\b"
+    r"|\b(?:great|fantastic|wonderful|perfect|amazing|brilliant|thanks|love(?:ly)?)\s*[,!.]+\s*"
+    r"(?:another|now|just|so|my|this|exactly)\b|\bthanks\s+for\s+nothing\b|\bjust\s+what\s+i\s+needed\b"
+    r"|\bwa+h+\b|\bkya\s+baat\s+hai\b|\bbahut\s+badhiya\b|\bवाह\b|\bक्या\s+बात\b")
+NEGATIVE_SITUATION_RE = re.compile(
+    r"\b(?:lost|broke|broken|crash\w*|deleted|wasted?|fail\w*|bug\w*|errors?|slow|useless|"
+    r"nothing|hours?|weekend|again|nahi|kharab|bekar|barbaad|band\s+ho|ruk\s+gaya)\b"
+    r"|\d+\s*-?\s*(?:hour|hr|minute|min|ghante|minat)|खराब|बेकार|बर्बाद|नहीं|घंटे")
+# Topics a creator must handle personally whatever else the comment asks (P14 / M2).
+SENSITIVE_TOPIC_RE = re.compile(
+    # Personal-situation phrasings only: "refund the attempt counter" or "threat model"
+    # in a technical question are not sensitive.
+    r"\b(?:account\s+(?:got\s+|was\s+|is\s+|has\s+been\s+)?hacked|hacked\s+(?:my|our)|stole\s+my|scammed|"
+    r"(?:want|need|demand|give\s+me|where\s+is|get)\s+(?:a\s+|my\s+)?refund|refund\s+(?:me|my|please|kar\w*|do)|"
+    r"(?:my|our)\s+money\s+back|chargeback|lawsuit|sue\s+you|legal\s+action\s+against|"
+    r"(?:call|report\s+(?:you|this)\s+to)\s+(?:the\s+)?police|police\s+complaint|suicid\w*|kill\s+myself|"
+    r"self[\s-]?harm|overdose|harass\w*\s+me|threaten\w*\s+(?:me|my)|death\s+threats?|paisa\s+wapas|"
+    r"dhokha)\b|आत्महत्या|धोखा")
+
+
+def sarcasm_cues(text: str) -> list[str]:
+    view = detection_view(CODE_SPAN_RE.sub(" ", text))
+    marker, negative = SARCASM_MARKER_RE.search(view), NEGATIVE_SITUATION_RE.search(view)
+    return [marker.group().strip(), negative.group().strip()] if marker and negative else []
+
+
+def sensitive_topics(text: str) -> list[str]:
+    view = detection_view(CODE_SPAN_RE.sub(" ", text))
+    return sorted({m.group().strip() for m in SENSITIVE_TOPIC_RE.finditer(view)})[:5]
+
+
 def injection_phrases(text: str) -> list[str]:
     """Weak multilingual phrase heuristic; text inside code spans is exempt.
 
@@ -368,18 +463,30 @@ def analyze(text: str, *, allow_hosts=()) -> InputAnalysis:
     analysis.contacts = extract_contacts(text)
     analysis.encoded_runs = _encoded_runs(strip_invisible(text))
     analysis.injection_phrases = injection_phrases(text)
+    analysis.directives = directives(text)
+    analysis.sarcasm_cues = sarcasm_cues(text)
+    analysis.sensitive_topics = sensitive_topics(text)
+
+    def add_directives(found):
+        known = {d["kind"] for d in analysis.directives}
+        analysis.directives.extend(d for d in found if d["kind"] not in known)
+
     for run in analysis.encoded_runs:
         # Decode-and-rescan: payloads hidden in base64/hex are scanned like plain text.
         hidden = injection_phrases(run["decoded"])
         analysis.injection_phrases.extend(p for p in hidden if p not in analysis.injection_phrases)
+        add_directives(directives(run["decoded"]))
         analysis.urls.extend(extract_urls(run["decoded"], allow_hosts))
         analysis.signals.append(Signal("encoded_payload", "low", 0, run["kind"]))
     for signal in [s for s in analysis.signals if s.kind == "tag_characters"]:
         # Tag smuggling hides ASCII; the decoded text is rescanned like a payload.
         hidden = injection_phrases(signal.detail)
         analysis.injection_phrases.extend(p for p in hidden if p not in analysis.injection_phrases)
+        add_directives(directives(signal.detail))
     if analysis.injection_phrases:
         analysis.signals.append(Signal("injection_phrase", "low", 0, analysis.injection_phrases[0]))
+    if analysis.directives:
+        analysis.signals.append(Signal("agent_directive", "low", 0, analysis.directives[0]["kind"]))
     view = detection_view(text)
     analysis.spam_features = {
         "url_count": len(analysis.urls),

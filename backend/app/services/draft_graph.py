@@ -20,6 +20,7 @@ from app.services import (
     input_analysis,
     llm,
     publishing,
+    reply_guard,
     reply_preferences,
     stage_inputs,
     stage_pipeline,
@@ -212,7 +213,14 @@ async def review_classification(state: DraftGraphState) -> dict:
 
 
 def parallel_quality_gate(state: DraftGraphState) -> dict:
-    return {"quality_needed": bool(state.get("text"))}
+    # Same holding-reply guard as the shared stage runner, after both parallel stages.
+    context = WorkflowContext.model_validate(state["context"])
+    text, triage = state.get("text", ""), state.get("triage")
+    if context.generate:
+        text, triage = reply_guard.apply(
+            comment=context.original_comment, reply=text, triage=triage,
+            primary=state.get("primary"), secondary=state.get("secondary"))
+    return {"quality_needed": bool(text), "text": text, "triage": triage}
 
 
 def route_after_parallel(state: DraftGraphState) -> str:

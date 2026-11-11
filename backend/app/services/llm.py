@@ -86,6 +86,7 @@ class Classification(Structured):
     sarcasm: Literal["yes", "no", "uncertain"] | None = None
     intended_sentiment: Sentiment | None = None
     target: Literal["content", "creator", "other_person", "self", "none"] | None = None
+    sarcasm_cues: list[str] | None = Field(default=None, max_length=3)
 
 
 class Generation(Structured):

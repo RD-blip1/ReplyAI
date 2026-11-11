@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Send, XCircle, RotateCcw, ListChecks, Inbox } from 'lucide-react';
+import { RefreshCw, Send, XCircle, RotateCcw, ListChecks, Inbox, ChevronDown } from 'lucide-react';
+import { Kpi, PageHeader, type Tone } from '../components/ui';
 import { apiRequest, messageOf } from '../lib/api';
 import type { EnqueueResult, JobList, JobStats, JobStatus, ReplyJob } from '../lib/types';
 import { useAppData } from '../hooks/useAppData';
-import { CLASS_LABELS, CLASS_STYLES } from '../lib/decisions';
+import { CLASS_LABELS, decisionBadge } from '../lib/decisions';
 import type { DecisionClass } from '../lib/types';
+import { jobNote } from '../lib/jobText';
 
 const PAGE_LIMIT = 200;
 const POLL_MS = 4000;
@@ -29,40 +31,28 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 };
 
 const STATUS_CLASSES: Record<JobStatus, string> = {
-  pending: 'bg-dark-600 text-text-main border-dark-500',
-  retry: 'bg-warning/20 text-warning border-warning/30',
-  processing: 'bg-brand/20 text-brand-light border-brand/30',
-  verified: 'bg-brand/10 text-brand-light border-brand/20',
-  publish_claimed: 'bg-brand/20 text-brand-light border-brand/30',
-  published: 'bg-success/20 text-success border-success/30',
-  review: 'bg-brand/20 text-brand-light border-brand/30',
-  skipped: 'bg-dark-600 text-text-muted border-dark-500',
-  failed: 'bg-danger/20 text-danger border-danger/30',
-  unknown: 'bg-warning/20 text-warning border-warning/30',
-  needs_reauth: 'bg-danger/20 text-danger border-danger/30',
-  cancelled: 'bg-dark-600 text-text-muted border-dark-500',
+  pending: 'badge',
+  retry: 'badge badge-amber',
+  processing: 'badge badge-green',
+  verified: 'badge badge-green',
+  publish_claimed: 'badge badge-green',
+  published: 'badge badge-green',
+  review: 'badge badge-amber',
+  skipped: 'badge',
+  failed: 'badge badge-red',
+  unknown: 'badge badge-amber',
+  needs_reauth: 'badge badge-red',
+  cancelled: 'badge',
 };
 
-const SUMMARY_CARDS: { label: string; statuses: JobStatus[]; color: string; bg: string }[] = [
-  { label: 'Queued', statuses: ['pending', 'retry'], color: 'text-warning', bg: 'bg-warning-bg' },
-  { label: 'Working', statuses: ['processing', 'verified', 'publish_claimed'], color: 'text-brand-light', bg: 'bg-brand/10' },
-  { label: 'Published', statuses: ['published'], color: 'text-success', bg: 'bg-success-bg' },
-  { label: 'Needs review', statuses: ['review'], color: 'text-brand-light', bg: 'bg-brand/10' },
-  { label: 'Failed / unknown', statuses: ['failed', 'unknown', 'needs_reauth'], color: 'text-danger', bg: 'bg-danger-bg' },
-  { label: 'Skipped', statuses: ['skipped', 'cancelled'], color: 'text-text-muted', bg: 'bg-dark-700' },
+const SUMMARY_CARDS: { label: string; statuses: JobStatus[]; tone: Tone }[] = [
+  { label: 'Queued', statuses: ['pending', 'retry'], tone: 'amber' },
+  { label: 'Working', statuses: ['processing', 'verified', 'publish_claimed'], tone: 'neutral' },
+  { label: 'Published', statuses: ['published'], tone: 'green' },
+  { label: 'Needs review', statuses: ['review'], tone: 'amber' },
+  { label: 'Failed / unknown', statuses: ['failed', 'unknown', 'needs_reauth'], tone: 'red' },
+  { label: 'Skipped', statuses: ['skipped', 'cancelled'], tone: 'neutral' },
 ];
-
-function errorCode(job: ReplyJob): string | null {
-  const code = job.last_error?.code;
-  return typeof code === 'string' ? code : null;
-}
-
-function decision(job: ReplyJob): string | null {
-  const value = job.outcome?.decision;
-  if (typeof value === 'string') return value;
-  const waiting = job.outcome?.waiting_for;
-  return typeof waiting === 'string' ? `waiting: ${waiting}` : null;
-}
 
 export default function JobsPage({ appData }: { appData: ReturnType<typeof useAppData> }) {
   const { session, sessionLoading, sessionError } = appData;
@@ -179,180 +169,173 @@ export default function JobsPage({ appData }: { appData: ReturnType<typeof useAp
   const visible = statusFilter ? jobs.filter(j => j.status === statusFilter) : jobs;
 
   return (
-    <div className="flex flex-col h-full gap-6 animate-in fade-in duration-300">
-      <header className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight mb-1">Reply jobs</h1>
-          <p className="text-text-muted text-sm">Background generation and publishing, with retries and recovery.</p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={loading || !session?.connected}
-              onClick={reconcile}
-              className="flex items-center gap-2 px-4 py-2 rounded-full border border-dark-600 bg-dark-800/80 hover:bg-dark-700 text-sm font-medium transition-colors disabled:opacity-50"
-              title="Recover jobs whose worker stopped mid-run"
-            >
-              <ListChecks className="w-4 h-4" />
-              Reconcile
-            </button>
-            <button
-              type="button"
-              disabled={loading || !session?.connected}
-              onClick={load}
-              className="flex items-center gap-2 px-4 py-2 rounded-full border border-dark-600 bg-dark-800/80 hover:bg-dark-700 text-sm font-medium transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-          </div>
-          {stats && (
-            <span className="text-xs text-text-muted">
-              {stats.total} total · {stats.due_now} due now{active ? ' · auto-refreshing' : ''}
-            </span>
-          )}
-        </div>
-      </header>
+    <div className="page">
+      <PageHeader
+        title="Reply jobs"
+        subtitle="Background generation and publishing, with retries and recovery."
+        actions={<>
+          <button
+            type="button"
+            disabled={loading || !session?.connected}
+            onClick={reconcile}
+            className="btn btn-lg"
+            title="Recover jobs whose worker stopped mid-run"
+          >
+            <ListChecks aria-hidden="true" />
+            Reconcile
+          </button>
+          <button
+            type="button"
+            disabled={loading || !session?.connected}
+            onClick={load}
+            className="btn btn-primary btn-lg"
+          >
+            <RefreshCw className={loading ? 'animate-spin' : ''} aria-hidden="true" />
+            Refresh
+          </button>
+        </>}
+        meta={stats ? `${stats.total} total · ${stats.due_now} due now${active ? ' · auto-refreshing' : ''}` : null}
+      />
 
       {(error || sessionError) && (
-        <div className="bg-danger-bg border border-danger/30 rounded-xl p-4 text-danger flex gap-3 items-start">
-          <XCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+        <div className="alert alert-error">
+          <XCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
           <div>
-            <h3 className="font-semibold mb-1">Error loading jobs</h3>
+            <h3 className="mb-1 font-semibold">Error loading jobs</h3>
             <p className="text-sm opacity-90">{error || sessionError}</p>
           </div>
         </div>
       )}
 
       {notice && (
-        <div className="rounded-xl border border-dark-600 bg-dark-800/60 px-4 py-3 text-sm text-text-main" role="status">
+        <div className="alert" role="status">
           {notice}
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="kpi-grid jobs-kpis">
         {summary.map(card => (
-          <div
-            key={card.label}
-            className="flex items-center gap-3 p-4 rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm"
-          >
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${card.bg} ${card.color}`}>
-              <Send className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xl font-bold">{card.count}</div>
-              <div className="text-xs text-text-muted">{card.label}</div>
-            </div>
-          </div>
+          <Kpi key={card.label} icon={Send} tone={card.tone} value={card.count} label={card.label} />
         ))}
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => setEnqueueOpen(open => !open)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-dark-600 bg-dark-900 hover:bg-dark-800 text-sm font-medium transition-colors"
+          aria-expanded={enqueueOpen}
+          className="btn btn-lg"
         >
-          <Inbox className="w-4 h-4" />
+          <Inbox aria-hidden="true" />
           {enqueueOpen ? 'Hide enqueue form' : 'Enqueue jobs'}
         </button>
-        <select
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value as JobStatus | '')}
-          aria-label="Filter by status"
-          className="px-4 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm focus:outline-none focus:border-brand"
-        >
-          <option value="">All statuses</option>
-          {Object.entries(STATUS_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
+        <div className="relative w-full sm:w-56">
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value as JobStatus | '')}
+            aria-label="Filter by status"
+            className="select"
+          >
+            <option value="">All statuses</option>
+            {Object.entries(STATUS_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
+        </div>
       </div>
 
       {enqueueOpen && (
-        <form onSubmit={submitEnqueue} className="rounded-2xl border border-dark-600 bg-dark-800/50 p-4 grid gap-3 md:grid-cols-[1fr_2fr_auto] md:items-end">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-text-muted">Video id</span>
+        <form onSubmit={submitEnqueue} className="card card-pad grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end">
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-text-dim">Video id</span>
             <input
               value={enqueueVideo}
               onChange={e => setEnqueueVideo(e.target.value)}
               placeholder="abcdefghijk"
               aria-label="Video id"
-              className="px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm focus:outline-none focus:border-brand"
+              className="input font-mono"
             />
           </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-text-muted">Comment ids (comma or newline separated, max 100)</span>
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-text-dim">Comment ids (comma or newline separated, max 100)</span>
             <textarea
               value={enqueueComments}
               onChange={e => setEnqueueComments(e.target.value)}
               rows={2}
               aria-label="Comment ids"
-              className="px-3 py-2 bg-dark-900 border border-dark-600 rounded-lg text-sm focus:outline-none focus:border-brand"
+              className="textarea font-mono"
             />
           </label>
           <button
             type="submit"
             disabled={busy || !session?.connected}
-            className="h-10 px-5 rounded-lg bg-brand text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            className="btn btn-primary btn-lg"
           >
             Enqueue
           </button>
         </form>
       )}
 
-      <div className="flex-1 rounded-2xl border border-dark-600 bg-dark-800/50 backdrop-blur-sm overflow-hidden flex flex-col min-h-[300px]">
-        <div className="grid grid-cols-[2fr_1.2fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-dark-600 bg-dark-900/50 text-sm font-medium text-text-muted">
+      <div className="card flex min-h-[18rem] flex-col overflow-hidden">
+        <div className="table-scroll flex flex-1 flex-col"><div className="flex min-w-[52rem] flex-1 flex-col">
+        <div className="data-head grid grid-cols-[minmax(0,1.4fr)_9rem_5.5rem_minmax(0,2fr)_9rem] gap-4 px-5 py-4">
           <div>Comment</div>
           <div>Status</div>
           <div>Attempts</div>
           <div>Latest note</div>
           <div className="text-right">Actions</div>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1">
           {loading && visible.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-text-muted p-8 text-center">Loading jobs…</div>
+            <div className="empty-state" role="status">Loading jobs…</div>
           ) : !session?.connected ? (
-            <div className="flex h-full items-center justify-center text-text-muted p-8 text-center">
+            <div className="empty-state">
               {sessionError || 'Connect a YouTube channel to view reply jobs.'}
             </div>
           ) : visible.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-text-muted p-8 text-center flex-col gap-2">
-              <ListChecks className="w-10 h-10 text-dark-500" />
+            <div className="empty-state">
+              <ListChecks aria-hidden="true" />
               <p>No jobs {statusFilter ? 'with this status' : 'queued yet'}.</p>
             </div>
           ) : (
             visible.map(job => (
-              <div key={job.id} className="grid grid-cols-[2fr_1.2fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-dark-600/50 hover:bg-dark-700/30 transition-colors text-sm items-center">
-                <div className="min-w-0">
-                  <div className="font-mono text-xs text-text-muted truncate">video {job.video_id}</div>
-                  <div className="font-mono text-xs text-text-dim truncate" title={job.comment_id}>comment {job.comment_id}</div>
-                  {job.batch_id && <div className="text-[11px] text-text-muted/70 truncate">batch {job.batch_id}</div>}
+              <div key={job.id} className="data-row grid grid-cols-[minmax(0,1.4fr)_9rem_5.5rem_minmax(0,2fr)_9rem] items-start gap-4 px-5 py-4 text-[0.9375rem]">
+                <div className="mono-meta min-w-0">
+                  <div className="truncate text-text-main" title={job.video_id}>video {job.video_id}</div>
+                  <div className="truncate text-text-main" title={job.comment_id}>comment {job.comment_id}</div>
+                  {job.batch_id && <div className="truncate" title={job.batch_id}>batch {job.batch_id}</div>}
                 </div>
                 <div>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${STATUS_CLASSES[job.status]}`}>
+                  <span className={STATUS_CLASSES[job.status]}>
                     {STATUS_LABELS[job.status] ?? job.status}
                   </span>
                 </div>
-                <div className="text-text-muted">
+                <div className="pt-0.5 font-mono text-sm text-text-dim tabular-nums">
                   {job.attempts}/{job.max_attempts}
-                  {job.recoveries > 0 && <span className="text-xs ml-1">(+{job.recoveries} recovered)</span>}
+                  {job.recoveries > 0 && <span className="block font-sans text-xs text-text-muted">+{job.recoveries} recovered</span>}
                 </div>
-                <div className="text-text-dim min-w-0">
-                  <div className="truncate" title={errorCode(job) ?? undefined}>{errorCode(job) ?? '—'}</div>
-                  {decision(job) && <div className="text-[11px] text-text-muted truncate">{decision(job)}</div>}
-                  {typeof job.outcome?.decision_class === 'string' && job.outcome.decision_class in CLASS_LABELS && (
-                    <span data-testid="decision-class" className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold ${CLASS_STYLES[job.outcome.decision_class as DecisionClass]}`}>
-                      {CLASS_LABELS[job.outcome.decision_class as DecisionClass]}</span>)}
+                <div className="min-w-0 space-y-2 text-text-main">
+                  {(() => {
+                    const note = jobNote(job)
+                    return note ? <>
+                      <div className="line-clamp-2 break-words" title={note.text}>{note.text}</div>
+                      {note.code ? <div className="mono-meta truncate" title={note.code}>{note.code}</div> : null}
+                    </> : <div className="text-text-muted">—</div>
+                  })()}
+                  {typeof job.outcome?.decision_class === 'string' && job.outcome.decision_class in CLASS_LABELS && (() => {
+                    const badge = decisionBadge(job.outcome.decision_class as DecisionClass, job.outcome.execution_result, job.outcome.decision)
+                    return <span data-testid="decision-class" className={badge.style}>
+                      {badge.label}</span>
+                  })()}
                 </div>
-                <div className="flex justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
                   {CANCELLABLE_STATUSES.includes(job.status) && (
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => cancelJob(job)}
-                      className="px-3 py-1.5 rounded-lg border border-dark-600 hover:bg-dark-700 text-xs disabled:opacity-50"
+                      className="btn btn-sm"
                     >
                       Cancel
                     </button>
@@ -363,9 +346,9 @@ export default function JobsPage({ appData }: { appData: ReturnType<typeof useAp
                       disabled={busy}
                       onClick={() => requeueJob(job)}
                       aria-label={`Requeue job for ${job.comment_id}`}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-dark-600 hover:bg-dark-700 text-xs disabled:opacity-50"
+                      className="btn btn-sm"
                     >
-                      <RotateCcw className="w-3 h-3" />
+                      <RotateCcw aria-hidden="true" />
                       Requeue
                     </button>
                   )}
@@ -375,10 +358,11 @@ export default function JobsPage({ appData }: { appData: ReturnType<typeof useAp
           )}
         </div>
         {statusFilter && jobs.length !== total && (
-          <div className="p-3 text-xs text-text-muted border-t border-dark-600">
+          <div className="border-t border-[var(--line)] px-5 py-3 text-sm text-text-muted">
             Showing {jobs.length} of {total} jobs (most recent first).
           </div>
         )}
+        </div></div>
       </div>
     </div>
   );

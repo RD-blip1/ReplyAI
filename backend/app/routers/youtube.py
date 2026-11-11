@@ -11,6 +11,7 @@ from app.models.draft import ReplyDraft
 from app.models.publication import ReplyPublication
 from app.models.published_reply_guard import PublishedReplyGuard
 from app.security import EncryptionNotConfigured
+from app.services import automation_decisions
 from app.services.google_oauth import OAuthSetupRequired, has_comment_read_scope
 from app.services.youtube_api import (
     YouTubeFailure,
@@ -77,6 +78,8 @@ class CommentItem(BaseModel):
     text: str
     total_reply_count: int
     reply_status: str = "No draft"
+    # Code of the latest current automatic decision (B5), so the UI can explain the status.
+    decision_code: str | None = None
 
 
 class CommentPage(BaseModel):
@@ -149,6 +152,43 @@ async def _credentials(connection: YouTubeConnection, db: AsyncSession):
         ) from None
 
 
+# Statuses shown in the inbox, derived from the latest *current* automation decision first
+# and the draft's own state second, so skipped and policy-blocked comments are never shown
+# as "Needs review" or "Draft ready".
+DECISION_STATUS = {
+    "SKIP": "Skipped",
+    "POLICY_BLOCK": "Blocked by policy",
+    "HUMAN_REVIEW": "Needs review",
+    "RETRY": "Waiting",
+    "TECHNICAL_FAILURE": "Technical failure",
+}
+SKIP_TRIAGE_CATEGORIES = {"spam_or_suspicious", "harassment_or_abuse", "off_topic",
+                          "unsupported_language"}
+
+
+def decision_is_current(decision, draft) -> bool:
+    """A decision applies only to the revision it judged and only until a person resolves it."""
+    revision = (decision.trace or {}).get("draft_revision")
+    return decision.resolved_at is None and (revision is None or revision == draft.revision)
+
+
+def draft_status(draft: ReplyDraft, decision) -> str:
+    if draft.human_decision == "approved":
+        return "Approved"
+    if draft.human_decision == "rejected":
+        return "Rejected"
+    if decision is not None and decision_is_current(decision, draft):
+        if decision.decision_class in DECISION_STATUS:
+            return DECISION_STATUS[decision.decision_class]
+        if decision.decision_class == "AUTO_PUBLISH":
+            return "Draft ready"  # e.g. dry run: eligible, nothing was sent
+    if (draft.triage or {}).get("category") in SKIP_TRIAGE_CATEGORIES and not (draft.text or "").strip():
+        return "Skipped"
+    if draft.review_status != "complete":
+        return "Needs review"
+    return "Draft ready"
+
+
 async def enrich_comment_page(db: AsyncSession, channel_id: str, page: dict) -> dict:
     comment_ids = [
         item.get("comment_id") for item in page.get("items", []) if item.get("comment_id")
@@ -206,6 +246,11 @@ async def enrich_comment_page(db: AsyncSession, channel_id: str, page: dict) -> 
             if p.parent_comment_id not in pubs_map:
                 pubs_map[p.parent_comment_id] = p
 
+    decisions = {}
+    if drafts:
+        decisions = await automation_decisions.latest_for_drafts(
+            db, drafts[0].channel_owner_id, draft_ids)
+
     for item in page.get("items", []):
         cid = item.get("comment_id")
         if not cid:
@@ -230,12 +275,11 @@ async def enrich_comment_page(db: AsyncSession, channel_id: str, page: dict) -> 
         elif guard and guard.status in ("unknown", "sending"):
             status = "Unconfirmed"
         elif draft:
-            if draft.review_status != "complete":
-                status = "Needs review"
-            elif draft.human_decision == "approved":
-                status = "Approved"
-            else:
-                status = "Draft ready"
+            status = draft_status(draft, decisions.get(draft.id))
+        decision = decisions.get(draft.id) if draft else None
+        item["decision_code"] = (decision.decision_code
+                                 if decision is not None and decision_is_current(decision, draft)
+                                 else None)
 
         item["reply_status"] = status
 

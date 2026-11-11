@@ -159,7 +159,11 @@ def decision_context(draft, mode: str, allowlist: dict) -> automation_policy.Dec
         input_signals_mode=settings.input_signals_mode, allowlist=allowlist,
         reply_policy_mode=settings.reply_policy_mode,
         skip_threshold=settings.triage_skip_threshold,
-        grounding_variant=settings.grounding_variant)
+        grounding_variant=settings.grounding_variant,
+        injection_routing=settings.injection_routing,
+        answerability_routing=settings.answerability_routing,
+        sarcasm_routing=settings.sarcasm_routing,
+        sensitive_topic_routing=settings.sensitive_topic_routing)
 
 
 # Outcome codes produced after the policy verdict (by the claim/insert path) → class.
@@ -280,7 +284,8 @@ async def _publish_generated_draft(
             elif b_code.startswith("reply_policy:") or b_code == "input_obfuscation_suspected":
                 outcome = "blocked_policy"
             elif b_code in ("sarcasm_possible", "multi_intent_risk", "needs_creator_answer",
-                            "language_uncertain", "triage_uncertain", "triage_low_confidence_skip"):
+                            "language_uncertain", "triage_uncertain", "triage_low_confidence_skip",
+                            "injection_suspected", "sensitive_topic"):
                 outcome = "needs_human_review"
             elif b_code in ("triage_required", "generation_required", "manual_review_required"): outcome = "blocked_policy"
             else: outcome = "blocked_unexpected_reason"

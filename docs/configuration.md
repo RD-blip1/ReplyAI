@@ -49,6 +49,9 @@ Both services bind to `127.0.0.1` only.
 | `FRONTEND_BASE_URL` | `http://127.0.0.1:5173` | Where OAuth callbacks redirect the browser |
 | `APP_ENVIRONMENT` | `development` | `production` marks cookies `Secure`; simulation requires `development` |
 | `DRAFT_WORKFLOW_ENGINE` | `legacy` | `legacy` (sequential) or `langgraph` (LangGraph `StateGraph`) |
+| `SESSION_TTL_SECONDS` | `1209600` | Session lifetime (14 days) |
+| `OAUTH_STATE_TTL_SECONDS` | `600` | Lifetime of a pending OAuth `state` |
+| `SESSION_COOKIE_NAME` | `replyai_session` | Name of the HTTP-only session cookie |
 
 ### Google OAuth
 
@@ -100,6 +103,8 @@ Shared across every API and worker process; `0` disables a budget.
 | `LLM_REQUESTS_PER_DAY` | `900` | Under Groq's free-plan 1000 RPD |
 | `LLM_BUDGET_MODE` | `per_attempt` | Charge every HTTP attempt, or `off` |
 | `LLM_BUDGET_UI` | `false` | Also apply LLM budgets to interactive UI requests |
+| `LLM_PRIMARY_TOKENS_PER_DAY` | `200000` | Local daily token ceiling for the primary role, shown by the usage gauge and used by the replies-remaining estimate; set it to match your provider plan (Groq lists per-model limits at console.groq.com/settings/limits). Not enforced; `0` = no ceiling |
+| `LLM_SECONDARY_TOKENS_PER_DAY` | `200000` | Same for the secondary role |
 | `YOUTUBE_READS_PER_MINUTE` | `30` | Worker reads (comment lookups, context, reconciliation) |
 | `YOUTUBE_UNITS_PER_DAY_BUDGET` | `8000` | Below the default 10,000-unit daily YouTube quota |
 | `AUTO_PUBLISH_MAX_PER_HOUR` | `10` | Automatic replies per channel per hour |
@@ -110,18 +115,26 @@ Shared across every API and worker process; `0` disables a budget.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `REVALIDATE_BEFORE_PUBLISH` | `true` | Re-read the comment immediately before publishing |
-| `INPUT_SIGNALS_MODE` | `observe` | `off`, `observe` (record only) or `route_high_risk` (block automatic publication on concealment) |
+| `INPUT_SIGNALS_MODE` | `route_high_risk` | `route_high_risk` blocks automatic publication on hidden-character concealment; `observe` only records signals; `off` disables them |
 | `REPLY_POLICY_MODE` | `enforce_auto` | `enforce_auto` blocks automatic publication on rule violations; `off` disables the rules |
 | `LANGUAGE_CONTRACT` | `true` | Accept English, Hindi and Hinglish input; review when the model's language claim contradicts the script |
+| `INJECTION_ROUTING` | `review` | Agent-directed instructions in a comment (override phrases, fake system/creator/verifier messages, dictated replies, credential requests) send it to a person; `off` disables this routing |
+| `ANSWERABILITY_ROUTING` | `always` | Creator-only questions go to a person; `grounded_only` does so only with grounding variants that ask for it |
+| `SARCASM_ROUTING` | `model_and_cues` | Deterministic sarcasm cues also route to review unless a classifier said no; `model_only` trusts the classifiers alone |
+| `SENSITIVE_TOPIC_ROUTING` | `review` | Account compromise, money disputes, legal threats and self-harm always go to a person; `off` disables this |
+| `REPLY_GUARD` | `true` | Replace a draft that the policy holds anyway (creator-only, sarcasm read literally, dictated reply) with a holding reply; the model's text stays in technical details |
+
+**Safety implication:** loosening any of these (`off`, `observe`, `model_only`,
+`grounded_only`) lets more comments reach automatic publication. Keep the defaults
+unless you have measured the effect in dry run.
 
 ### Experimental switches
 
-These are off by default and exist to compare behaviour; the defaults are the
-established configuration.
+These exist to compare behaviour; the defaults are the established configuration.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `GROUNDING_VARIANT` | `v0` | `v1`/`v2` give the models an evidence pack; `v2` also uses a grounding-aware quality review and routes creator-only questions to review |
+| `GROUNDING_VARIANT` | `v1` | `v0`: only triage sees the video; `v1` (default): the generator also gets the evidence pack and is told not to guess creator-only facts; `v2`: adds a grounding-aware quality review; `v3`: experimental |
 | `TRIAGE_SKIP_THRESHOLD` | `0.0` | Minimum triage confidence for an automatic skip; lower-confidence skips go to a person |
 | `SANITIZE_MODEL_INPUT` | `false` | Strip concealment characters from text sent to the models |
 | `SPOTLIGHT_UNTRUSTED` | `false` | Wrap comment text in a random per-request delimiter |

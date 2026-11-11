@@ -6,7 +6,7 @@ working through the review queue, and confirming publication. It talks to the Fa
 backend at `VITE_API_BASE_URL` (default `http://127.0.0.1:8001`).
 
 For the full setup (backend, PostgreSQL, Redis, Google OAuth and the LLM providers), see
-[../docs/getting-started.md](../docs/getting-started.md).
+[../docs/installation.md](../docs/installation.md).
 
 ## Setup
 
@@ -35,8 +35,8 @@ non-sensitive (a base URL only).
 | Path | Contents |
 | --- | --- |
 | `src/App.tsx` | Hash routing, OAuth result notices, unsaved-changes guard |
-| `src/components/` | `AppShell` (navigation), `AutomationControls`, `SimulationPanel` |
+| `src/components/` | `AppShell` (navigation), `AutomationControls`, `SimulationPanel`, `TokenUsageGauge`, `SafeText`, `ui` primitives |
 | `src/hooks/useAppData.ts` | Session, channel, video and comment state |
-| `src/lib/` | API client (`api.ts`), payload types (`types.ts`), decision labels |
+| `src/lib/` | API client (`api.ts`), payload types (`types.ts`), decision and job wording, formatting |
 | `src/pages/` | Videos, comment inbox, posted, jobs, automation, review queue, settings |
 | `src/DraftPanel.tsx` | Draft generation, verification results, refinement, publish confirmation, reconciliation |

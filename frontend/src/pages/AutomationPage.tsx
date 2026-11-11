@@ -1,20 +1,31 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Bot, RefreshCw } from 'lucide-react'
+import { formatDateTime } from '../lib/format'
+import { ChevronRight, CircleCheck, CircleX, ClipboardCheck, Eye, RefreshCw, RotateCcw, Shield, Zap } from 'lucide-react'
+import { KpiBody, PageHeader, type Tone } from '../components/ui'
 import { apiRequest, messageOf } from '../lib/api'
 import AutomationControls from '../components/AutomationControls'
-import { CLASS_LABELS, CLASS_STYLES, explain } from '../lib/decisions'
+import { CLASS_LABELS, decisionBadge, explain, isDryRun } from '../lib/decisions'
 import type { AutomationDecision, AutomationSettings, AutomationSummary, DecisionClass } from '../lib/types'
 import type { useAppData } from '../hooks/useAppData'
 
 const CLASSES: DecisionClass[] = ['AUTO_PUBLISH', 'HUMAN_REVIEW', 'SKIP', 'POLICY_BLOCK', 'RETRY', 'TECHNICAL_FAILURE']
+const CLASS_ICONS: Record<DecisionClass, { icon: typeof Eye; tone: Tone }> = {
+  AUTO_PUBLISH: { icon: CircleCheck, tone: 'green' },
+  HUMAN_REVIEW: { icon: ClipboardCheck, tone: 'amber' },
+  SKIP: { icon: Eye, tone: 'neutral' },
+  POLICY_BLOCK: { icon: Shield, tone: 'red' },
+  RETRY: { icon: RotateCcw, tone: 'amber' },
+  TECHNICAL_FAILURE: { icon: CircleX, tone: 'neutral' },
+}
 
-function Badge({ value }: { value: DecisionClass }) {
-  return <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${CLASS_STYLES[value]}`}>
-    {CLASS_LABELS[value]}</span>
+function Badge({ value, result }: { value: DecisionClass; result?: string | null }) {
+  const badge = decisionBadge(value, result)
+  return <span className={badge.style}>
+    {badge.label}</span>
 }
 
 function when(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleString() : '—'
+  return formatDateTime(value) ?? '—'
 }
 
 function Trace({ decision }: { decision: AutomationDecision }) {
@@ -29,12 +40,12 @@ function Trace({ decision }: { decision: AutomationDecision }) {
     ['Input signals', (trace.input_signals as { high_risk_kinds?: string[] } | undefined)?.high_risk_kinds],
     ['Stage failures', trace.stage_failures], ['Publication', trace.publication],
   ]
-  return <section aria-label="Decision detail" className="mt-4 rounded-xl border border-dark-600 bg-dark-900/60 p-4 text-sm">
-    <div className="flex items-center gap-2 mb-2"><Badge value={decision.decision_class} />
-      <code className="text-xs">{decision.decision_code}</code>
-      <span className="text-text-muted text-xs">{decision.execution_result}</span></div>
-    <p className="mb-3">{explain(decision.decision_code)}</p>
-    <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1">
+  return <section aria-label="Decision detail" className="well mt-4 p-4 text-sm sm:p-5">
+    <div className="mb-2 flex flex-wrap items-center gap-2"><Badge value={decision.decision_class} result={decision.execution_result} />
+      <code className="text-xs text-text-dim">{decision.decision_code}</code>
+      <span className="text-xs text-text-muted">{decision.execution_result}</span></div>
+    <p className="mb-3 text-[0.9375rem]">{explain(decision.decision_code)}</p>
+    <dl className="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[10rem_minmax(0,1fr)] [overflow-wrap:anywhere]">
       {rows.filter(([, value]) => value !== undefined && value !== null).map(([label, value]) => <div key={label} className="contents">
         <dt className="text-text-muted">{label}</dt>
         <dd className="break-words">{typeof value === 'string' ? value : <code className="text-xs">{JSON.stringify(value)}</code>}</dd>
@@ -92,51 +103,62 @@ export default function AutomationPage({ appData }: { appData: ReturnType<typeof
   }
   const counts = Object.fromEntries(CLASSES.map(c => [c, 0])) as Record<DecisionClass, number>
   for (const row of summary?.decisions ?? []) counts[row.decision_class] = (counts[row.decision_class] ?? 0) + row.count
+  const dryRuns = (summary?.decisions ?? []).filter(row => row.decision_class === 'AUTO_PUBLISH' && isDryRun(row.execution_result))
+    .reduce((total, row) => total + row.count, 0)
   const state = !settings?.enabled ? 'Off' : settings.paused ? 'Paused' : 'Running'
 
-  return <div className="space-y-6">
-    <div className="flex items-center justify-between gap-3 flex-wrap">
-      <h1 className="text-2xl font-bold flex items-center gap-2"><Bot className="w-6 h-6 text-brand" /> Automation</h1>
-      <div className="flex gap-2">
+  return <div className="page">
+    <PageHeader
+      title="Automation"
+      subtitle="Let ReplyAI discover new comments and act inside your rules."
+      actions={<>
         <button type="button" onClick={() => void pollNow()} disabled={!settings?.enabled || settings?.paused}
-          className="px-3 py-2 rounded-lg border border-dark-600 text-sm disabled:opacity-50">Poll now</button>
+          className="btn btn-primary btn-lg"
+          title={!settings?.enabled ? 'Turn automation on to check for new comments' : settings?.paused ? 'Resume automation to check for new comments' : undefined}>
+          <Zap aria-hidden="true" />Poll now</button>
         <button type="button" onClick={() => void load()} aria-label="Refresh"
-          className="px-3 py-2 rounded-lg border border-dark-600 text-sm"><RefreshCw className="w-4 h-4" /></button>
+          className="btn btn-lg btn-icon w-11"><RefreshCw className={loading ? 'animate-spin' : ''} aria-hidden="true" /></button>
+      </>}
+    />
+    {error ? <p role="alert" className="alert alert-error">{error}</p> : null}
+    {notice ? <p role="status" className="alert">{notice}</p> : null}
+    <section aria-label="Discovery status" className="card automation-status">
+      <div>
+        <span className="automation-status-label">Status</span>
+        <span className="automation-status-value inline-flex items-center gap-2">
+          <span className={`h-2 w-2 rounded-full ${state === 'Running' ? 'bg-brand' : state === 'Paused' ? 'bg-warning' : 'bg-text-muted'}`} aria-hidden="true" />
+          {state}</span>
       </div>
-    </div>
-    {error ? <p role="alert" className="text-danger text-sm">{error}</p> : null}
-    {notice ? <p role="status" className="text-sm">{notice}</p> : null}
-    <section aria-label="Discovery status" className="rounded-2xl border border-dark-600 bg-dark-800/50 p-4 text-sm grid gap-1 sm:grid-cols-4">
-      <div><span className="text-text-muted block">Status</span><span className="font-semibold">{state}</span></div>
-      <div><span className="text-text-muted block">Last check</span>{when(settings?.last_poll_finished_at)}</div>
-      <div><span className="text-text-muted block">Next check</span>{when(settings?.next_poll_at)}</div>
-      <div><span className="text-text-muted block">Last error</span>{String(settings?.last_error?.code ?? '—')}</div>
+      <div><span className="automation-status-label">Last check</span><span className="automation-status-value">{when(settings?.last_poll_finished_at)}</span></div>
+      <div><span className="automation-status-label">Next check</span><span className="automation-status-value">{when(settings?.next_poll_at)}</span></div>
+      <div><span className="automation-status-label">Last error</span><span className="automation-status-value [overflow-wrap:anywhere]">{String(settings?.last_error?.code ?? '—')}</span></div>
     </section>
-    <details className="rounded-2xl border border-dark-600 bg-dark-800/50 p-4">
-      <summary className="cursor-pointer text-sm font-semibold">Controls</summary>
-      <div className="mt-3"><AutomationControls csrf={csrf} connected /></div>
+    <details className="card disclosure">
+      <summary className="px-5 py-4 text-lg font-semibold text-text-main sm:px-6"><ChevronRight className="disclosure-chevron" aria-hidden="true" />Controls</summary>
+      <div className="border-t border-[var(--line)] px-5 py-5 sm:px-6"><AutomationControls csrf={csrf} connected /></div>
     </details>
-    <section aria-label="Last 24 hours" className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+    <section aria-label="Last 24 hours" className="kpi-grid automation-kpis">
       {CLASSES.map(c => <button type="button" key={c} onClick={() => setFilter(filter === c ? '' : c)}
         aria-pressed={filter === c}
-        className={`rounded-xl border p-3 text-left ${filter === c ? 'border-brand' : 'border-dark-600'} bg-dark-800/50`}>
-        <span className="block text-2xl font-bold" data-testid={`count-${c}`}>{counts[c]}</span>
-        <span className="text-xs text-text-muted">{CLASS_LABELS[c]}</span>
+        className="kpi">
+        <KpiBody icon={CLASS_ICONS[c].icon} tone={CLASS_ICONS[c].tone} value={counts[c]} testId={`count-${c}`}
+          label={c === 'AUTO_PUBLISH' && dryRuns > 0 ? `Auto-publish eligible (${dryRuns} dry run)` : CLASS_LABELS[c]} />
       </button>)}
     </section>
-    <section aria-label="Recent decisions" className="rounded-2xl border border-dark-600 bg-dark-800/50 p-4">
-      <h2 className="font-semibold mb-3">Recent decisions{filter ? ` · ${CLASS_LABELS[filter]}` : ''}</h2>
+    <section aria-label="Recent decisions" className="card card-pad">
+      <h2 className="card-title mb-3">Recent decisions{filter ? ` · ${CLASS_LABELS[filter]}` : ''}</h2>
       {loading ? <p role="status" className="text-sm text-text-muted">Loading…</p> : null}
-      {!loading && items.length === 0 ? <p className="text-sm text-text-muted">No automatic decisions yet.</p> : null}
-      <ul className="divide-y divide-dark-600">
+      {!loading && items.length === 0 ? <p className="text-[0.9375rem] text-text-muted">No automatic decisions yet.</p> : null}
+      <ul className="divide-y divide-[var(--line)] border-t border-[var(--line)]">
         {items.map(item => <li key={item.id}>
-          <button type="button" onClick={() => setSelected(item)} className="w-full text-left py-2 flex gap-3 items-start">
-            <Badge value={item.decision_class} />
-            <span className="flex-1 min-w-0">
-              <span className="block truncate text-sm">{String(item.trace?.comment ?? item.comment_id)}</span>
-              <span className="block text-xs text-text-muted">{explain(item.decision_code)}</span>
+          <button type="button" onClick={() => setSelected(item)} aria-pressed={selected?.id === item.id}
+            className={`automation-decision ${selected?.id === item.id ? 'is-selected' : ''}`}>
+            <span className="automation-decision-badge"><Badge value={item.decision_class} result={item.execution_result} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-base text-text-main">{String(item.trace?.comment ?? item.comment_id)}</span>
+              <span className="mt-0.5 block text-sm text-text-muted">{explain(item.decision_code)}</span>
             </span>
-            <span className="text-xs text-text-muted shrink-0">{when(item.created_at)}</span>
+            <span className="shrink-0 text-sm text-text-muted tabular-nums">{when(item.created_at)}</span>
           </button>
         </li>)}
       </ul>

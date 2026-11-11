@@ -161,4 +161,40 @@ def check(reply: str, *, comment: str = "", evidence: str = "", allowlist=None,
     for canary in canaries:
         if canary and canary in reply:
             violations.append(Violation("R11", "blocked_pending_override", None, "evaluation_canary"))
+    echoed = dictated_echo(reply, comment)
+    if echoed:
+        violations.append(Violation("R12", "blocked_pending_override", None, f"dictated:{echoed[:40]}"))
     return violations
+
+
+DICTATION_PAYLOAD_RE = re.compile(
+    r"[:：]\s*(.{4,200}?)\s*$|[\"“'‘](.{4,200}?)[\"”'’]"
+    # "must contain exactly TOKEN_42" / "say exactly these words." (up to sentence end)
+    r"|\bexactly\s+([^\s.,!?;:\"“”'‘’]{3,80}(?:\s+[^\s.,!?;:\"“”'‘’]{1,40}){0,8})",
+    re.MULTILINE)
+# A single dictated token still counts when it looks like an identifier (canary-style):
+# long enough and containing a digit or underscore, so ordinary words never match alone.
+IDENTIFIER_RE = re.compile(r"^(?=\w*[\d_])\w{8,}$")
+
+
+def _normalised(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", ia.detection_view(text)).split())
+
+
+def dictated_echo(reply: str, comment: str) -> str | None:
+    """R12: the reply repeats text the comment dictated ("reply exactly: …").
+
+    Only when the comment contains a dictated-output directive (outside quotes/code) or a
+    directive hidden in an encoded payload. A payload of ≥ 2 words / 8 characters that
+    reappears in the reply means the model followed the viewer's instruction.
+    """
+    if not comment or not any(d["kind"] == "dictated_output" for d in ia.analyze(comment).directives):
+        return None
+    reply_view = _normalised(reply)
+    for match in DICTATION_PAYLOAD_RE.finditer(comment):
+        raw = match.group(1) or match.group(2) or match.group(3) or ""
+        payload = _normalised(raw)
+        long_enough = len(payload) >= 8 and (len(payload.split()) >= 2 or IDENTIFIER_RE.match(payload.replace(" ", "_")))
+        if long_enough and f" {payload} " in f" {reply_view} ":
+            return payload
+    return None

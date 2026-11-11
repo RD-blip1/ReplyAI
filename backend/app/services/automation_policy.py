@@ -74,6 +74,11 @@ class DecisionContext:
     mode_changed: bool = False
     skip_threshold: float = 0.0
     grounding_variant: str = "v0"
+    # Routing switches (production defaults; the baseline arm sets them off).
+    injection_routing: str = "review"          # off | review
+    answerability_routing: str = "always"      # grounded_only | always
+    sarcasm_routing: str = "model_and_cues"    # model_only | model_and_cues
+    sensitive_topic_routing: str = "review"    # off | review
 
 
 def _decision(cls, code, *reasons, execution="none", retry=None, dry_run=False):
@@ -168,8 +173,10 @@ def decide(ctx: DecisionContext) -> Decision:
     if language.get("script") and profile in ("Latn", "Deva", "mixed") and language["script"] != profile:
         return _decision("HUMAN_REVIEW", "language_uncertain",
                          f"model said {language['script']}, text is {profile}")
-    # Answerability, only when evidence is supplied to the models.
-    if ctx.grounding_variant != "v0" and triage.get("answer_source") == "creator_only":
+    # Answerability. Triage always sees the video's title, description and chapters, so a
+    # "creator_only" judgement has a basis even when the generator gets no evidence (v0).
+    grounded = ctx.grounding_variant != "v0" or ctx.answerability_routing == "always"
+    if grounded and triage.get("answer_source") == "creator_only":
         return _decision("HUMAN_REVIEW", "needs_creator_answer", triage.get("missing_information"))
     # Multi-intent: risky segments always go to a person.
     for segment in triage.get("segments") or []:
@@ -179,11 +186,31 @@ def decide(ctx: DecisionContext) -> Decision:
     if ctx.input_signals_mode == "route_high_risk" and HIGH_RISK_INPUT & set(signals.get("high_risk_kinds") or []):
         return _decision("POLICY_BLOCK", "input_obfuscation_suspected",
                          ", ".join(sorted(HIGH_RISK_INPUT & set(signals["high_risk_kinds"]))))
-    # Sarcasm: either classifier flags possible sarcasm.
-    for classification in (getattr(draft, "primary_classification", None),
-                           getattr(draft, "secondary_classification", None)):
-        if (classification or {}).get("sarcasm") in ("yes", "uncertain"):
+    # Instructions aimed at the agent (override, fake system/creator/verifier messages,
+    # dictated replies, credential requests) — outside quotes and code spans. Whatever the
+    # models made of them, a person decides.
+    if ctx.injection_routing == "review" and signals.get("directives"):
+        return _decision("HUMAN_REVIEW", "injection_suspected",
+                         ", ".join(d["kind"] for d in signals["directives"]))
+    # Account compromise, money disputes, legal threats, self-harm: always a person.
+    if ctx.sensitive_topic_routing == "review" and signals.get("sensitive_topics"):
+        return _decision("HUMAN_REVIEW", "sensitive_topic", ", ".join(signals["sensitive_topics"]))
+    # Sarcasm: either classifier flags it, either reports an intended sentiment that
+    # reverses a non-negative literal one, or (cue mode) deterministic cues fire while no
+    # classifier explicitly ruled sarcasm out.
+    classifications = [c or {} for c in (getattr(draft, "primary_classification", None),
+                                         getattr(draft, "secondary_classification", None))]
+    for classification in classifications:
+        if classification.get("sarcasm") in ("yes", "uncertain"):
             return _decision("HUMAN_REVIEW", "sarcasm_possible", "a classifier flagged sarcasm")
+        if (classification.get("intended_sentiment") == "negative"
+                and classification.get("sentiment") in ("positive", "neutral", "mixed")):
+            return _decision("HUMAN_REVIEW", "sarcasm_possible",
+                             "intended sentiment is negative while the literal one is not")
+    cues = signals.get("sarcasm_cues") or []
+    if (ctx.sarcasm_routing == "model_and_cues" and cues
+            and not any(c.get("sarcasm") == "no" for c in classifications)):
+        return _decision("HUMAN_REVIEW", "sarcasm_possible", "sarcasm cues: " + ", ".join(cues))
 
     # Step 7: verification, via the existing predicate; reply policy is evaluated
     # separately below so its code can be classed as POLICY_BLOCK.
@@ -202,6 +229,12 @@ def decide(ctx: DecisionContext) -> Decision:
         violation = reply_policy.blocking(policy_violations(draft, ctx))
         if violation:
             return _decision("POLICY_BLOCK", f"reply_policy:{violation.rule}", violation.detail)
+        # The reply guard replaced a reply that repeated dictated text (R12). The saved text
+        # no longer shows the echo, so the verdict R12 reached on the model's own reply is
+        # kept: replacing a draft must never make it more publishable.
+        guard = (getattr(draft, "triage", None) or {}).get("reply_guard") or {}
+        if guard.get("kind") == "dictated_reply":
+            return _decision("POLICY_BLOCK", "reply_policy:R12", "dictated reply replaced by the reply guard")
     # Step 9: two-model invariant.
     broken = two_llm_violation(draft)
     if broken:

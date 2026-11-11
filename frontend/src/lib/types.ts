@@ -29,6 +29,8 @@ export type CommentItem = {
   text: string
   total_reply_count: number
   reply_status: string
+  // Latest current automation decision code for this comment's draft, if any.
+  decision_code?: string | null
   video_id: string | null
   video_title: string | null
 }
@@ -150,6 +152,43 @@ export type AutomationSummary = {
 }
 
 export type PolicyViolation = { rule: string; level: string; span: number[] | null; detail: string }
+
+// LLM usage summary (gauge by teammate Hrishik1033, PR #3) and the local estimate.
+export type RoleTokenUsage = {
+  used: number
+  limit: number
+  percent: number
+  requests: number
+  request_limit: number
+  unknown_requests: number
+}
+
+export type UsageEstimate = {
+  replies: number | null
+  reason: 'not_enough_history' | 'no_ceiling' | null
+  message: string
+  completed_replies: number
+  min_history: number
+  limiting?: { role: 'primary' | 'secondary'; resource: 'tokens' | 'requests' }
+}
+
+export type UsageSummary = {
+  llm: {
+    used: number
+    limit: number
+    percent: number
+    headline_role: 'primary' | 'secondary'
+    roles: { primary: RoleTokenUsage; secondary: RoleTokenUsage }
+    unknown_requests: number
+    window_hours: number
+  }
+  per_reply: {
+    completed_replies: number
+    roles: Partial<Record<'primary' | 'secondary', { tokens_per_reply: number | null; requests_per_reply: number }>>
+  }
+  estimate: UsageEstimate
+  simulation: boolean
+}
 
 export type AutomationDecision = {
   id: string

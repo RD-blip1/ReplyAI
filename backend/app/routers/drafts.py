@@ -29,7 +29,7 @@ from app.models import (
     ReplyPreferences,
 )
 from app.models.session import utc_now
-from app.routers.youtube import _credentials, _owned_channel, _owned_connection
+from app.routers.youtube import _credentials, _owned_channel, _owned_connection, decision_is_current
 from app.services import (
     draft_workflow,
     llm,
@@ -397,6 +397,38 @@ async def find_draft(
 @router.get("/{draft_id}")
 async def retrieve(draft_id: str, session: Session, db: Db):
     return view(await owned(db, session, draft_id))
+
+
+@router.get("/{draft_id}/decision")
+async def final_decision(draft_id: str, session: Session, db: Db):
+    """The latest *recorded* automatic decision for this draft, read-only.
+
+    Nothing is re-evaluated here, so a historical draft is never relabelled with a fresh
+    verdict. ``current`` is false when the decision judged an older revision or a person
+    has since resolved it; manual-review mode records no decision at all (``None``).
+    """
+    from app.services import automation_decisions
+
+    draft = await owned(db, session, draft_id)
+    latest = (await automation_decisions.latest_for_drafts(
+        db, draft.channel_owner_id, [draft.id])).get(draft.id)
+    if latest is None:
+        return None
+    trace = latest.trace or {}
+    publication = trace.get("publication") or {}
+    return {
+        "decision_class": latest.decision_class,
+        "decision_code": latest.decision_code,
+        "execution_result": latest.execution_result,
+        "revision": trace.get("draft_revision"),
+        "current": decision_is_current(latest, draft),
+        "resolved": latest.resolved_at is not None,
+        "created_at": latest.created_at,
+        "policy_version": latest.policy_version,
+        "reason": publication.get("reason"),
+        "policy": [v for v in trace.get("policy") or [] if isinstance(v, dict)],
+        "high_risk_input": list((trace.get("input_signals") or {}).get("high_risk_kinds") or []),
+    }
 
 
 @router.get("/{draft_id}/usage")
